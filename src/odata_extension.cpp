@@ -4,6 +4,7 @@
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/config.hpp"
+#include "duckdb/main/connection.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 
@@ -145,11 +146,23 @@ void ActionExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 		if (action.arg.empty()) {
 			throw InvalidInputException("odata_expose requires a table name");
 		}
+		// fail fast: the table must resolve in the live catalog
+		{
+			duckdb::Connection con(*action.db);
+			auto res = con.Query("SELECT COUNT(*) FROM duckdb_columns() WHERE table_name = " +
+			                     duckdb_odata::QuoteStringLiteral(action.arg) + " AND NOT internal");
+			if (res->HasError()) {
+				throw InvalidInputException("odata_expose failed: %s", res->GetError());
+			}
+			if (res->GetValue(0, 0).GetValue<int64_t>() == 0) {
+				throw InvalidInputException("odata_expose: table '" + action.arg + "' does not exist");
+			}
+		}
 		auto state = GetStateFor(context);
 		EntityBinding binding;
 		binding.name = action.arg;
 		binding.table = action.arg;
-		binding.schema.clear();
+		binding.schema.clear(); // resolved at request time
 		// replace / append
 		bool replaced = false;
 		{
