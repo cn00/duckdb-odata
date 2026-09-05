@@ -10,6 +10,7 @@ the JSON/XML responses. Requires a `duckdb` binary able to load the extension
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -17,11 +18,28 @@ import urllib.error
 import urllib.request
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DUCKDB = sys.argv[1] if len(sys.argv) > 1 else "/Users/cn/.local/bin/duckdb"
-EXT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(REPO, ".dev", "duckdb", "build", "extension", "odata",
-                                                        "odata.duckdb_extension")
-HOST = "127.0.0.1"
-PORT = 18080
+
+
+def resolve_duckdb():
+    # argv -> DUCKDB env -> PATH
+    if len(sys.argv) > 1:
+        return sys.argv[1]
+    env = os.environ.get("DUCKDB")
+    if env:
+        return env
+    return shutil.which("duckdb")
+
+
+def resolve_extension():
+    if len(sys.argv) > 2:
+        return sys.argv[2]
+    return os.path.join(REPO, ".dev", "duckdb", "build", "extension", "odata", "odata.duckdb_extension")
+
+
+DUCKDB = resolve_duckdb()
+EXT = resolve_extension()
+HOST = os.environ.get("ODATA_TEST_HOST", "127.0.0.1")
+PORT = int(os.environ.get("ODATA_TEST_PORT", "18080"))
 BASE = f"http://{HOST}:{PORT}"
 
 failures = []
@@ -46,6 +64,9 @@ def get(path, token=None):
 
 
 def main():
+    if not DUCKDB:
+        print("duckdb binary not found; pass it as argv[1] or set DUCKDB env / PATH", file=sys.stderr)
+        sys.exit(2)
     sql = f"""
 LOAD '{EXT}';
 CREATE TABLE customers (id BIGINT, name VARCHAR, active BOOLEAN);
