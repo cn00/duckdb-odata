@@ -131,12 +131,13 @@ unique_ptr<FunctionData> StopBind(ClientContext &context, TableFunctionBindInput
 // one schema) and report back one row per exposed entity with the public
 // entity-set name and the DuckDB table reference.
 struct ODataExposeData : public TableFunctionData {
-	std::string arg; // table ("t" or "s.t") or schema name
+	std::string arg; // odata_expose: "t" / "s.t" / "db.s.t";
+	                 // odata_expose_schema: "s" / "db.s"
 	shared_ptr<DatabaseInstance> db;
 };
 
 // Single-scalar SELECT helper (current_schema()/current_catalog()); used only
-// to decide how to render a table reference.
+// to decide how to render a table reference / entity name.
 static std::string ScalarQueryResult(duckdb::Connection &con, const std::string &sql) {
 	auto res = con.Query(sql);
 	if (!res || res->HasError() || res->RowCount() == 0) {
@@ -146,13 +147,36 @@ static std::string ScalarQueryResult(duckdb::Connection &con, const std::string 
 }
 
 // Render the DuckDB table a binding points at: the bare table name when it
-// lives in the current schema, otherwise "schema.table". (v0.1 never exposes
-// across catalogs, so the catalog is not part of the reference.)
-static std::string BindingTableRef(const EntityBinding &binding, const std::string &current_schema) {
+// lives in the current catalog + schema, "schema.table" for a non-current
+// schema, "catalog.schema.table" for a non-current catalog (attached DB).
+static std::string BindingTableRef(const EntityBinding &binding, const std::string &current_schema,
+                                   const std::string &current_catalog) {
+	if (!binding.catalog.empty() && binding.catalog != current_catalog) {
+		return binding.catalog + "." + binding.schema + "." + binding.table;
+	}
 	if (!binding.schema.empty() && binding.schema != current_schema) {
 		return binding.schema + "." + binding.table;
 	}
 	return binding.table;
+}
+
+// Relative public entity-set name for odata_expose_schema: a table in the
+// current catalog+schema keeps the bare table name; any qualifier outside the
+// current scope is prefixed with '_' separators. A non-current catalog
+// always carries its schema too (e.g. 'db2.main' -> "db2_main_<table>"), so
+// names stay unique across attached databases.
+static std::string SchemaEntityName(const EntityBinding &binding, const std::string &current_schema,
+                                    const std::string &current_catalog) {
+	bool catalog_differs = !binding.catalog.empty() && binding.catalog != current_catalog;
+	if (!catalog_differs && binding.schema == current_schema) {
+		return binding.table;
+	}
+	std::string name;
+	if (catalog_differs) {
+		name = binding.catalog + "_";
+	}
+	name += binding.schema + "_" + binding.table;
+	return name;
 }
 
 unique_ptr<FunctionData> ExposeBind(ClientContext &context, TableFunctionBindInput &input,
@@ -206,9 +230,10 @@ void ExposeExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 		}
 	}
 	std::string current_schema = ScalarQueryResult(con, "SELECT current_schema()");
+	std::string current_catalog = ScalarQueryResult(con, "SELECT current_catalog()");
 	output.SetCardinality(1);
 	output.SetValue(0, 0, Value(binding.name));
-	output.SetValue(1, 0, Value(BindingTableRef(binding, current_schema)));
+	output.SetValue(1, 0, Value(BindingTableRef(binding, current_schema, current_catalog)));
 }
 
 void ExposeSchemaExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
@@ -222,15 +247,25 @@ void ExposeSchemaExecute(ClientContext &context, TableFunctionInput &data_p, Dat
 	if (d.arg.empty()) {
 		throw InvalidInputException("odata_expose_schema requires a schema name");
 	}
+	// arg: "schema" (current catalog) or "catalog.schema" (attached database)
+	std::string catalog_arg;
+	std::string schema;
+	try {
+		duckdb_odata::ParseQualifiedSchema(d.arg, catalog_arg, schema);
+	} catch (const duckdb_odata::ODataParseException &e) {
+		throw InvalidInputException("odata_expose_schema failed: %s", e.what());
+	}
 	auto state = duckdb_odata::ODataServerRegistry::Get().GetOrCreate(*d.db);
 	duckdb::Connection con(*d.db);
+	std::string catalog_scope = catalog_arg.empty() ? "current_catalog()" : duckdb_odata::QuoteStringLiteral(catalog_arg);
 	auto res = con.Query("SELECT table_name, database_name FROM duckdb_tables() WHERE schema_name = " +
-	                     duckdb_odata::QuoteStringLiteral(d.arg) +
-	                     " AND NOT internal AND NOT temporary AND database_name = current_catalog()");
+	                     duckdb_odata::QuoteStringLiteral(schema) + " AND NOT internal AND NOT temporary AND database_name = " +
+	                     catalog_scope);
 	if (res->HasError()) {
 		throw InvalidInputException("odata_expose_schema failed: %s", res->GetError());
 	}
 	std::string current_schema = ScalarQueryResult(con, "SELECT current_schema()");
+	std::string current_catalog = ScalarQueryResult(con, "SELECT current_catalog()");
 	std::vector<std::pair<std::string, std::string>> exposed; // (entity, table)
 	for (idx_t r = 0; r < res->RowCount(); r++) {
 		std::string tname = res->GetValue(0, r).ToString();
@@ -239,12 +274,11 @@ void ExposeSchemaExecute(ClientContext &context, TableFunctionInput &data_p, Dat
 		}
 		EntityBinding binding;
 		binding.table = tname;
-		binding.schema = d.arg;
+		binding.schema = schema;
 		binding.catalog = res->GetValue(1, r).ToString();
-		// Public entity name: keep the bare table name (schema is only used
-		// for qualified resolution; uniqueness is the caller's concern for
-		// per-schema exposure).
-		binding.name = tname;
+		// Relative naming: bare table name in the current scope, qualifier
+		// prefixes outside of it (see SchemaEntityName).
+		binding.name = SchemaEntityName(binding, current_schema, current_catalog);
 		{
 			std::lock_guard<std::mutex> lock(state->mu);
 			bool found = false;
@@ -261,7 +295,7 @@ void ExposeSchemaExecute(ClientContext &context, TableFunctionInput &data_p, Dat
 				state->bindings.push_back(binding);
 			}
 		}
-		exposed.emplace_back(binding.name, BindingTableRef(binding, current_schema));
+		exposed.emplace_back(binding.name, BindingTableRef(binding, current_schema, current_catalog));
 	}
 	output.SetCardinality(exposed.size());
 	for (idx_t i = 0; i < exposed.size(); i++) {

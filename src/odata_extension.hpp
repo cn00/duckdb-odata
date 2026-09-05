@@ -7,8 +7,10 @@
 //   CALL odata_serve('http://0.0.0.0:8080');               -- 1-row result: listen_uri/listen_url/auth_token
 //   CALL odata_stop();
 //   SELECT * FROM odata_status();
-//   CALL odata_expose('customers');       -- 1-row result: (entity, table)
-//   CALL odata_expose_schema('main');     -- result: one (entity, table) row per exposed table
+//   CALL odata_expose('customers');        -- 1-row result: (entity, table)
+//   CALL odata_expose('db1.s1.t');         -- catalog-qualified table accepted too
+//   CALL odata_expose_schema('main');      -- (entity, table) row per exposed table
+//   CALL odata_expose_schema('db1.main');  -- schema of an attached catalog ('catalog.schema')
 //   CALL odata_entity('customers', key := 'id');
 //
 // and the resource-limit configuration options (design doc section 39).

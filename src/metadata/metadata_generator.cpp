@@ -52,7 +52,7 @@ EntityBinding ParseQualifiedBinding(const std::string &qualified_name) {
 	if (input.empty()) {
 		throw ODataParseException("empty entity identifier");
 	}
-	// split on '.': table | schema.table
+	// split on '.': table | schema.table | catalog.schema.table
 	std::vector<std::string> parts;
 	size_t start = 0;
 	while (true) {
@@ -68,18 +68,45 @@ EntityBinding ParseQualifiedBinding(const std::string &qualified_name) {
 			throw ODataParseException("invalid qualified identifier '" + qualified_name + "'");
 		}
 	}
-	if (parts.size() > 2) {
-		throw ODataParseException("catalog-qualified identifiers are not supported yet: '" + qualified_name + "'");
+	if (parts.size() > 3) {
+		throw ODataParseException("too many qualifiers (catalog.schema.table only): '" + qualified_name + "'");
 	}
-	if (parts.size() == 2) {
+	if (parts.size() == 3) {
+		binding.catalog = parts[0];
+		binding.schema = parts[1];
+		binding.table = parts[2];
+		binding.name = parts[0] + "_" + parts[1] + "_" + parts[2];
+	} else if (parts.size() == 2) {
 		binding.schema = parts[0];
 		binding.table = parts[1];
-		binding.name = binding.schema + "_" + binding.table;
+		binding.name = parts[0] + "_" + parts[1];
 	} else {
 		binding.table = parts[0];
-		binding.name = binding.table;
+		binding.name = parts[0];
 	}
 	return binding;
+}
+
+void ParseQualifiedSchema(const std::string &qualified_name, std::string &catalog, std::string &schema) {
+	catalog.clear();
+	schema.clear();
+	std::string input = Trim(qualified_name);
+	if (input.empty()) {
+		throw ODataParseException("empty schema identifier");
+	}
+	auto dot = input.find('.');
+	if (dot == std::string::npos) {
+		schema = input;
+		return;
+	}
+	if (input.find('.', dot + 1) != std::string::npos) {
+		throw ODataParseException("schema reference must be 'schema' or 'catalog.schema': '" + qualified_name + "'");
+	}
+	catalog = input.substr(0, dot);
+	schema = input.substr(dot + 1);
+	if (catalog.empty() || schema.empty()) {
+		throw ODataParseException("invalid schema identifier '" + qualified_name + "'");
+	}
 }
 
 void ResolveBindingTable(duckdb::Connection &con, EntityBinding &binding) {
@@ -111,6 +138,12 @@ void ResolveBindingTable(duckdb::Connection &con, EntityBinding &binding) {
 	if (result->RowCount() == 0) {
 		throw ODataParseException("table '" + binding.table + "' does not exist in schema '" +
 		                          (binding.schema.empty() ? "<current>" : binding.schema) + "'");
+	}
+	if (binding.catalog.empty() && result->RowCount() > 1) {
+		// schema-qualified but no catalog: several attached databases could own
+		// the same schema.table - require catalog qualification
+		throw ODataParseException("table '" + binding.table + "' exists in multiple catalogs under schema '" +
+		                          binding.schema + "'; qualify it, e.g. odata_expose('catalog.schema.table')");
 	}
 	binding.catalog = GetString(result, 0, 0);
 	binding.schema = GetString(result, 0, 1);

@@ -37,15 +37,22 @@ struct EntityBinding {
 // Accepted forms:
 //   customers           -> table only (resolved in the current schema)
 //   s1.customers        -> schema + table
+//   db1.s1.customers    -> catalog + schema + table (attached database)
 //
-// Public-name rule (deterministic, no connection needed): a schema-qualified
-// input gets the OData entity-set name "<schema>_<table>" (a legal EDM simple
-// identifier, avoids clashes across schemas); an unqualified input keeps the
-// bare table name (resolved in the default schema), preserving single-schema
-// usage. Catalog qualification is not supported yet (v0.1).
+// Public-name rule (deterministic, no connection needed): every explicitly
+// given qualifier is prefixed to the entity-set name, joined with '_' (a legal
+// EDM simple identifier that avoids clashes across schemas/catalogs):
+//   customers -> "customers", s1.customers -> "s1_customers",
+//   db1.s1.customers -> "db1_s1_customers".
+// An unqualified input keeps the bare table name.
 //
-// Throws ODataParseException for empty inputs or >2 components.
+// Throws ODataParseException for empty inputs or >3 components.
 EntityBinding ParseQualifiedBinding(const std::string &qualified_name);
+
+// Parse a schema reference (no table part): "schema" or "catalog.schema".
+// catalog stays empty for the one-component form ("current catalog").
+// Throws ODataParseException for empty inputs or >2 components.
+void ParseQualifiedSchema(const std::string &qualified_name, std::string &catalog, std::string &schema);
 
 // Resolve and pin the concrete catalog/schema of `binding.table` against the
 // live catalog (fills binding.catalog/schema).

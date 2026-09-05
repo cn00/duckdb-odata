@@ -278,7 +278,8 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
 
 
 def check_expose_rows():
-    """odata_expose / odata_expose_schema report (entity, table) mapping rows."""
+    """odata_expose / odata_expose_schema report (entity, table) mapping rows,
+    including catalog-qualified schema exposure on an attached database."""
     sql = f"""
 LOAD '{EXT}';
 CREATE TABLE t_ex (id BIGINT);
@@ -286,12 +287,16 @@ SELECT * FROM odata_expose('t_ex');
 CREATE SCHEMA s_ex;
 CREATE TABLE s_ex.x (id BIGINT);
 SELECT * FROM odata_expose_schema('s_ex');
+ATTACH ':memory:' AS db_cat;
+CREATE TABLE db_cat.main.c (id BIGINT);
+SELECT * FROM odata_expose_schema('db_cat.main');
 """
     proc = subprocess.run([DUCKDB, "-unsigned"], input=sql, capture_output=True, text=True, timeout=30)
     out = (proc.stdout or "") + (proc.stderr or "")
     check("expose returns entity+table columns", "entity" in out and "table" in out, out[:200])
     check("expose('t_ex') row shows table", "t_ex" in out, out[:300])
     check("expose_schema('s_ex') row shows qualified table", "s_ex.x" in out, out[:300])
+    check("expose_schema('db_cat.main') rows", "db_cat_main_c" in out and "db_cat.main.c" in out, out[:400])
     check("expose rows exit code", proc.returncode == 0, str(proc.returncode))
 
 
