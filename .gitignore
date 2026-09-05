@@ -17,3 +17,6 @@ test/http/.tmp/
 
 # Salesforce CLI cache (unrelated tooling dropped into the workspace)
 .sf/
+
+# design notes: kept locally, deliberately not versioned
+docs/design.md
