@@ -3,6 +3,7 @@ name: build-and-test
 on:
   push:
     branches: [main]
+    tags: ['v*']        # e.g. v0.1.0 -> full matrix + GitHub Release
   pull_request:
   workflow_dispatch:
 
@@ -92,3 +93,80 @@ jobs:
           python3 test/http/odata_http_test.py \
             "$DUCKDB_CLI" \
             "${{ github.workspace }}/.dev/duckdb/build/extension/odata/odata.duckdb_extension"
+
+  # Publish a GitHub Release from a version tag (e.g. v0.1.0). Waits for the
+  # full build/test matrix, then renames every uploaded artifact to
+  # odata-<duckdb_version>-<platform>.duckdb_extension and attaches them
+  # (plus a sha256 manifest) to the tag's release.
+  release:
+    name: Release (${{ github.ref_name }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: odata-*
+
+      - name: Stage release assets
+        run: |
+          set -euo pipefail
+          cd release-assets
+          assets=()
+          for d in odata-*; do
+            test -d "$d" || continue
+            test -f "$d/odata.duckdb_extension" || continue
+            cp "$d/odata.duckdb_extension" "${d}.duckdb_extension"
+            assets+=("${d}.duckdb_extension")
+          done
+          test "${#assets[@]}" -gt 0   # fail loudly when nothing was built
+          sha256sum "${assets[@]}" > sha256sums.txt
+          printf '%s\n' "${assets[@]}" > /tmp/assets.txt
+          echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd release-assets
+          mapfile -t assets < /tmp/assets.txt
+          args=("${assets[@]}" sha256sums.txt)
+
+          notes=/tmp/release-notes.md
+          {
+            echo "# duckdb-odata ${RELEASE_TAG}"
+            echo
+            echo "Loadable DuckDB extensions for each supported DuckDB version / ABI."
+            echo "Load with the matching official duckdb CLI using \`-unsigned\`:"
+            echo
+            echo "\`\`\`sql"
+            echo "LOAD '/path/to/odata-v1.5.5-linux_amd64.duckdb_extension';"
+            echo "\`\`\`"
+            echo
+            echo "| Asset | DuckDB CLI | Platform |"
+            echo "| --- | --- | --- |"
+            for a in "${assets[@]}"; do
+              rest="${a#odata-}"; rest="${rest%.duckdb_extension}"
+              ver="${rest%%-*}"; plat="${rest#*-}"
+              echo "| \`$a\` | ${ver} | ${plat} |"
+            done
+            echo
+            echo "Checksums: \`sha256sums.txt\`. Quick start: [README](https://github.com/cn00/duckdb-odata/blob/main/README.md)."
+          } > "$notes"
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            # rerun of a partially created release: refresh notes and assets
+            gh release edit "$RELEASE_TAG" --title "duckdb-odata ${RELEASE_TAG}" --notes-file "$notes"
+            gh release upload "$RELEASE_TAG" "${args[@]}" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${args[@]}" \
+              --title "duckdb-odata ${RELEASE_TAG}" \
+              --notes-file "$notes"
+          fi
+
+      - name: Show uploaded assets
+        run: ls -la release-assets/*.duckdb_extension release-assets/sha256sums.txt
