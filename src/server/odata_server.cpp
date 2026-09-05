@@ -192,11 +192,11 @@ Route ParseRoute(const ODataServerState &state, const std::string &full_path) {
 	return route;
 }
 
-// The set of recognized $ system query options
+// The set of recognized $ system query options (v0.1: query options only;
+// $expand/$apply/$search/$skiptoken are intentionally rejected with 400).
 bool IsSystemOption(const std::string &name) {
 	return name == "$select" || name == "$filter" || name == "$orderby" || name == "$top" || name == "$skip" ||
-	       name == "$count" || name == "$format" || name == "$expand" || name == "$apply" || name == "$search" ||
-	       name == "$skiptoken";
+	       name == "$count" || name == "$format";
 }
 
 } // namespace

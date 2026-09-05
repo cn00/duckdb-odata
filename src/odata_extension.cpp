@@ -7,6 +7,7 @@
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 
+#include "common/string_util.hpp"
 #include "metadata/metadata_generator.hpp"
 #include "server/odata_server.hpp"
 
@@ -167,7 +168,41 @@ void ActionExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 		break;
 	}
 	case ODataActionKind::EXPOSE_SCHEMA: {
-		throw NotImplementedException("odata_expose_schema is not implemented yet in v0.1");
+		if (action.arg.empty()) {
+			throw InvalidInputException("odata_expose_schema requires a schema name");
+		}
+		auto state = GetStateFor(context);
+		duckdb::Connection con(*action.db);
+		auto res = con.Query("SELECT table_name, schema_name FROM duckdb_tables() WHERE schema_name = " +
+		                     duckdb_odata::QuoteStringLiteral(action.arg) + " AND NOT internal");
+		if (res->HasError()) {
+			throw InvalidInputException("odata_expose_schema failed: %s", res->GetError());
+		}
+		for (idx_t r = 0; r < res->RowCount(); r++) {
+			std::string tname = res->GetValue(0, r).ToString();
+			if (tname.empty()) {
+				continue;
+			}
+			EntityBinding binding;
+			binding.name = tname;
+			binding.table = tname;
+			binding.schema = action.arg;
+			{
+				std::lock_guard<std::mutex> lock(state->mu);
+				bool found = false;
+				for (auto &b : state->bindings) {
+					if (StringUtil::Lower(b.name) == StringUtil::Lower(binding.name)) {
+						b = binding;
+						found = true;
+						break;
+					}
+				}
+				if (!found) {
+					state->bindings.push_back(binding);
+				}
+			}
+		}
+		break;
 	}
 	case ODataActionKind::ENTITY: {
 		if (action.arg.empty() || action.key.empty()) {
