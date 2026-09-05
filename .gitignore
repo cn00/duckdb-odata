@@ -20,3 +20,7 @@ test/http/.tmp/
 
 # design notes: kept locally, deliberately not versioned
 docs/design.md
+
+# stray local tooling artifacts
+*.json.tmp
+tmp-*.json
