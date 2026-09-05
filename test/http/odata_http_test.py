@@ -274,12 +274,41 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
         except subprocess.TimeoutExpired:
             proc.kill()
 
+    run_additional_checks()
+
+
+def check_expose_rows():
+    """odata_expose / odata_expose_schema report (entity, table) mapping rows."""
+    sql = f"""
+LOAD '{EXT}';
+CREATE TABLE t_ex (id BIGINT);
+SELECT * FROM odata_expose('t_ex');
+CREATE SCHEMA s_ex;
+CREATE TABLE s_ex.x (id BIGINT);
+SELECT * FROM odata_expose_schema('s_ex');
+"""
+    proc = subprocess.run([DUCKDB, "-unsigned"], input=sql, capture_output=True, text=True, timeout=30)
+    out = (proc.stdout or "") + (proc.stderr or "")
+    check("expose returns entity+table columns", "entity" in out and "table" in out, out[:200])
+    check("expose('t_ex') row shows table", "t_ex" in out, out[:300])
+    check("expose_schema('s_ex') row shows qualified table", "s_ex.x" in out, out[:300])
+    check("expose rows exit code", proc.returncode == 0, str(proc.returncode))
+
+
+def run_additional_checks():
     # Phase 2: zero-argument odata_serve() (free port + auto-generated token).
     try:
         check_default_serve()
     except RuntimeError as e:
         failures.append("defaults odata_serve()")
         print(f"[FAIL] defaults odata_serve() -- {e}")
+
+    # Phase 3: odata_expose / odata_expose_schema report mapping rows.
+    try:
+        check_expose_rows()
+    except RuntimeError as e:
+        failures.append("expose rows")
+        print(f"[FAIL] expose rows -- {e}")
 
     if failures:
         print(f"\n{len(failures)} FAILURES")

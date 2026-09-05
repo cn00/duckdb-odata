@@ -15,6 +15,9 @@
 #include "parser/odata_parser.hpp"
 #include "server/odata_server.hpp"
 
+#include <mutex>
+#include <utility>
+
 namespace duckdb {
 
 using duckdb_odata::EntityBinding;
@@ -23,7 +26,7 @@ using duckdb_odata::ODataServerState;
 
 namespace {
 
-enum class ODataActionKind { STOP, EXPOSE, EXPOSE_SCHEMA, ENTITY };
+enum class ODataActionKind { STOP, ENTITY };
 
 struct ODataActionData : public TableFunctionData {
 	ODataActionKind kind;
@@ -124,22 +127,147 @@ unique_ptr<FunctionData> StopBind(ClientContext &context, TableFunctionBindInput
 	return CommonBind(context, ODataActionKind::STOP, input, return_types, names);
 }
 
-unique_ptr<FunctionData> ExposeBind(ClientContext &context, TableFunctionBindInput &input,
-                                    vector<LogicalType> &return_types, vector<string> &names) {
-	auto data = CommonBind(context, ODataActionKind::EXPOSE, input, return_types, names);
-	if (!input.inputs.empty()) {
-		data->Cast<ODataActionData>().arg = input.inputs[0].ToString();
+// odata_expose / odata_expose_schema: whitelist one table (or every table of
+// one schema) and report back one row per exposed entity with the public
+// entity-set name and the DuckDB table reference.
+struct ODataExposeData : public TableFunctionData {
+	std::string arg; // table ("t" or "s.t") or schema name
+	shared_ptr<DatabaseInstance> db;
+};
+
+// Single-scalar SELECT helper (current_schema()/current_catalog()); used only
+// to decide how to render a table reference.
+static std::string ScalarQueryResult(duckdb::Connection &con, const std::string &sql) {
+	auto res = con.Query(sql);
+	if (!res || res->HasError() || res->RowCount() == 0) {
+		return "";
 	}
-	return data;
+	return res->GetValue(0, 0).ToString();
 }
 
-unique_ptr<FunctionData> ExposeSchemaBind(ClientContext &context, TableFunctionBindInput &input,
-                                          vector<LogicalType> &return_types, vector<string> &names) {
-	auto data = CommonBind(context, ODataActionKind::EXPOSE_SCHEMA, input, return_types, names);
-	if (!input.inputs.empty()) {
-		data->Cast<ODataActionData>().arg = input.inputs[0].ToString();
+// Render the DuckDB table a binding points at: the bare table name when it
+// lives in the current schema, otherwise "schema.table". (v0.1 never exposes
+// across catalogs, so the catalog is not part of the reference.)
+static std::string BindingTableRef(const EntityBinding &binding, const std::string &current_schema) {
+	if (!binding.schema.empty() && binding.schema != current_schema) {
+		return binding.schema + "." + binding.table;
 	}
-	return data;
+	return binding.table;
+}
+
+unique_ptr<FunctionData> ExposeBind(ClientContext &context, TableFunctionBindInput &input,
+                                    vector<LogicalType> &return_types, vector<string> &names) {
+	auto result = make_uniq<ODataExposeData>();
+	result->db = context.db;
+	if (!input.inputs.empty()) {
+		result->arg = input.inputs[0].ToString();
+	}
+	// shared shape for odata_expose and odata_expose_schema
+	return_types.push_back(LogicalType::VARCHAR);
+	names.emplace_back("entity");
+	return_types.push_back(LogicalType::VARCHAR);
+	names.emplace_back("table");
+	return std::move(result);
+}
+
+void ExposeExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
+	auto &global = data_p.global_state->Cast<ODataGlobalState>();
+	if (global.done) {
+		return;
+	}
+	global.done = true;
+
+	auto &d = data_p.bind_data->Cast<ODataExposeData>();
+	if (d.arg.empty()) {
+		throw InvalidInputException("odata_expose requires a table name");
+	}
+	duckdb::Connection con(*d.db);
+	EntityBinding binding;
+	try {
+		binding = duckdb_odata::ParseQualifiedBinding(d.arg);
+		duckdb_odata::ResolveBindingTable(con, binding);
+	} catch (const duckdb_odata::ODataParseException &e) {
+		throw InvalidInputException("odata_expose failed: %s", e.what());
+	}
+	// replace an existing binding of the same entity name, else append
+	{
+		auto state = duckdb_odata::ODataServerRegistry::Get().GetOrCreate(*d.db);
+		std::lock_guard<std::mutex> lock(state->mu);
+		bool replaced = false;
+		for (auto &b : state->bindings) {
+			if (StringUtil::Lower(b.name) == StringUtil::Lower(binding.name)) {
+				b = binding;
+				replaced = true;
+				break;
+			}
+		}
+		if (!replaced) {
+			state->bindings.push_back(binding);
+		}
+	}
+	std::string current_schema = ScalarQueryResult(con, "SELECT current_schema()");
+	output.SetCardinality(1);
+	output.SetValue(0, 0, Value(binding.name));
+	output.SetValue(1, 0, Value(BindingTableRef(binding, current_schema)));
+}
+
+void ExposeSchemaExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
+	auto &global = data_p.global_state->Cast<ODataGlobalState>();
+	if (global.done) {
+		return;
+	}
+	global.done = true;
+
+	auto &d = data_p.bind_data->Cast<ODataExposeData>();
+	if (d.arg.empty()) {
+		throw InvalidInputException("odata_expose_schema requires a schema name");
+	}
+	auto state = duckdb_odata::ODataServerRegistry::Get().GetOrCreate(*d.db);
+	duckdb::Connection con(*d.db);
+	auto res = con.Query("SELECT table_name, database_name FROM duckdb_tables() WHERE schema_name = " +
+	                     duckdb_odata::QuoteStringLiteral(d.arg) +
+	                     " AND NOT internal AND NOT temporary AND database_name = current_catalog()");
+	if (res->HasError()) {
+		throw InvalidInputException("odata_expose_schema failed: %s", res->GetError());
+	}
+	std::string current_schema = ScalarQueryResult(con, "SELECT current_schema()");
+	std::vector<std::pair<std::string, std::string>> exposed; // (entity, table)
+	for (idx_t r = 0; r < res->RowCount(); r++) {
+		std::string tname = res->GetValue(0, r).ToString();
+		if (tname.empty()) {
+			continue;
+		}
+		EntityBinding binding;
+		binding.table = tname;
+		binding.schema = d.arg;
+		binding.catalog = res->GetValue(1, r).ToString();
+		// Public entity name: keep the bare table name (schema is only used
+		// for qualified resolution; uniqueness is the caller's concern for
+		// per-schema exposure).
+		binding.name = tname;
+		{
+			std::lock_guard<std::mutex> lock(state->mu);
+			bool found = false;
+			for (auto &b : state->bindings) {
+				if (StringUtil::Lower(b.name) == StringUtil::Lower(binding.name) &&
+				    StringUtil::Lower(b.schema) == StringUtil::Lower(binding.schema) &&
+				    StringUtil::Lower(b.catalog) == StringUtil::Lower(binding.catalog)) {
+					b = binding;
+					found = true;
+					break;
+				}
+			}
+			if (!found) {
+				state->bindings.push_back(binding);
+			}
+		}
+		exposed.emplace_back(binding.name, BindingTableRef(binding, current_schema));
+	}
+	output.SetCardinality(exposed.size());
+	for (idx_t i = 0; i < exposed.size(); i++) {
+		output.SetValue(0, i, Value(exposed[i].first));
+		output.SetValue(1, i, Value(exposed[i].second));
+	}
 }
 
 unique_ptr<FunctionData> EntityBind(ClientContext &context, TableFunctionBindInput &input,
@@ -178,80 +306,6 @@ void ActionExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 		auto state = ODataServerRegistry::Get().Find(*context.db);
 		if (state) {
 			StopODataServer(*state);
-		}
-		break;
-	}
-	case ODataActionKind::EXPOSE: {
-		if (action.arg.empty()) {
-			throw InvalidInputException("odata_expose requires a table name");
-		}
-		EntityBinding binding;
-		try {
-			binding = duckdb_odata::ParseQualifiedBinding(action.arg);
-			duckdb::Connection con(*action.db);
-			duckdb_odata::ResolveBindingTable(con, binding);
-		} catch (const duckdb_odata::ODataParseException &e) {
-			throw InvalidInputException("odata_expose failed: %s", e.what());
-		}
-		auto state = GetStateFor(context);
-		// replace / append
-		bool replaced = false;
-		{
-			std::lock_guard<std::mutex> lock(state->mu);
-			for (auto &b : state->bindings) {
-				if (StringUtil::Lower(b.name) == StringUtil::Lower(binding.name)) {
-					b = binding;
-					replaced = true;
-					break;
-				}
-			}
-			if (!replaced) {
-				state->bindings.push_back(binding);
-			}
-		}
-		break;
-	}
-	case ODataActionKind::EXPOSE_SCHEMA: {
-		if (action.arg.empty()) {
-			throw InvalidInputException("odata_expose_schema requires a schema name");
-		}
-		auto state = GetStateFor(context);
-		duckdb::Connection con(*action.db);
-		auto res = con.Query("SELECT table_name, database_name FROM duckdb_tables() WHERE schema_name = " +
-		                     duckdb_odata::QuoteStringLiteral(action.arg) +
-		                     " AND NOT internal AND NOT temporary AND database_name = current_catalog()");
-		if (res->HasError()) {
-			throw InvalidInputException("odata_expose_schema failed: %s", res->GetError());
-		}
-		for (idx_t r = 0; r < res->RowCount(); r++) {
-			std::string tname = res->GetValue(0, r).ToString();
-			if (tname.empty()) {
-				continue;
-			}
-			EntityBinding binding;
-			binding.table = tname;
-			binding.schema = action.arg;
-			binding.catalog = res->GetValue(1, r).ToString();
-			// Public entity name: keep the bare table name (schema is only used
-			// for qualified resolution; uniqueness is the caller's concern for
-			// per-schema exposure).
-			binding.name = tname;
-			{
-				std::lock_guard<std::mutex> lock(state->mu);
-				bool found = false;
-				for (auto &b : state->bindings) {
-					if (StringUtil::Lower(b.name) == StringUtil::Lower(binding.name) &&
-					    StringUtil::Lower(b.schema) == StringUtil::Lower(binding.schema) &&
-					    StringUtil::Lower(b.catalog) == StringUtil::Lower(binding.catalog)) {
-						b = binding;
-						found = true;
-						break;
-					}
-				}
-				if (!found) {
-					state->bindings.push_back(binding);
-				}
-			}
 		}
 		break;
 	}
@@ -361,10 +415,10 @@ void LoadInternal(ExtensionLoader &loader) {
 	TableFunction stop("odata_stop", {}, ActionExecute, StopBind, CommonInit);
 	loader.RegisterFunction(stop);
 
-	TableFunction expose("odata_expose", {LogicalType::VARCHAR}, ActionExecute, ExposeBind, CommonInit);
+	TableFunction expose("odata_expose", {LogicalType::VARCHAR}, ExposeExecute, ExposeBind, CommonInit);
 	loader.RegisterFunction(expose);
 
-	TableFunction expose_schema("odata_expose_schema", {LogicalType::VARCHAR}, ActionExecute, ExposeSchemaBind,
+	TableFunction expose_schema("odata_expose_schema", {LogicalType::VARCHAR}, ExposeSchemaExecute, ExposeBind,
 	                            CommonInit);
 	loader.RegisterFunction(expose_schema);
 

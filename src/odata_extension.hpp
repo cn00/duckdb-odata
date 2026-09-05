@@ -7,8 +7,8 @@
 //   CALL odata_serve('http://0.0.0.0:8080');               -- 1-row result: listen_uri/listen_url/auth_token
 //   CALL odata_stop();
 //   SELECT * FROM odata_status();
-//   CALL odata_expose('customers');
-//   CALL odata_expose_schema('main');
+//   CALL odata_expose('customers');       -- 1-row result: (entity, table)
+//   CALL odata_expose_schema('main');     -- result: one (entity, table) row per exposed table
 //   CALL odata_entity('customers', key := 'id');
 //
 // and the resource-limit configuration options (design doc section 39).
