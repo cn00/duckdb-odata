@@ -1,0 +1,16 @@
+# DuckDB source used for local builds (pinned via make/config)
+.dev/
+build/
+out/
+*.o
+*.a
+*.so
+*.dylib
+*.duckdb_extension
+__pycache__/
+*.pyc
+.DS_Store
+.idea/
+.vscode/
+duckdb_unittest_tempdir/
+test/http/.tmp/
