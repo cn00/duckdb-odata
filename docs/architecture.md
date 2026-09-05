@@ -66,7 +66,8 @@ Registered by `src/odata_extension.cpp` (see `ODataExtension::Load`):
 
 | SQL | purpose |
 | --- | --- |
-| `CALL odata_serve('http://0.0.0.0:8080', token := '…', base_path := '/odata')` | start HTTP server on the calling database instance |
+| `CALL odata_serve()` | start server with defaults: `localhost` on a free port, auto-generated bearer token; returns one row (`listen_uri`/`listen_url`/`auth_token`) |
+| `CALL odata_serve('http://0.0.0.0:8080', token := '…', base_path := '/odata')` | start HTTP server on the calling database instance (pinned address / token / base path) |
 | `CALL odata_stop()` | stop the server for this instance |
 | `SELECT * FROM odata_status()` | server/registry state |
 | `CALL odata_expose('customers')` | whitelist a table as an entity set |
@@ -134,7 +135,8 @@ LOAD '/absolute/path/to/odata.duckdb_extension';
 CREATE TABLE customers (id BIGINT, name VARCHAR, active BOOLEAN);
 CALL odata_expose('customers');
 CALL odata_entity('customers', key := 'id');
-CALL odata_serve('http://127.0.0.1:8080');
+CALL odata_serve();                     -- or pin address/token:
+-- CALL odata_serve('http://127.0.0.1:8080', token := 'secret');
 ```
 
 The `Makefile` wraps the steps above (`make build`, `make test-http`).

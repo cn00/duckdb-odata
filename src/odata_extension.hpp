@@ -3,7 +3,8 @@
 //
 // Registers the SQL-facing surface of the extension (design doc section 5):
 //
-//   CALL odata_serve('http://0.0.0.0:8080');
+//   CALL odata_serve();                                    -- defaults: localhost, free port, auto token
+//   CALL odata_serve('http://0.0.0.0:8080');               -- 1-row result: listen_uri/listen_url/auth_token
 //   CALL odata_stop();
 //   SELECT * FROM odata_status();
 //   CALL odata_expose('customers');

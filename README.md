@@ -20,14 +20,31 @@ LOAD odata;
 CREATE TABLE customers (id BIGINT, name VARCHAR, active BOOLEAN);
 CALL odata_expose('customers');
 CALL odata_entity('customers', key := 'id');
-CALL odata_serve('http://0.0.0.0:8080');
+CALL odata_serve('http://0.0.0.0:8080', token := 'secret');
 ```
 
+Calling `odata_serve()` with no arguments binds `localhost` to a free port and
+auto-generates a bearer token; it returns one row
+(`listen_uri` / `listen_url` / `auth_token`) so the endpoint and token are easy
+to read back:
+
+```sql
+CALL odata_serve();
+-- ┌─────────────────┬──────────────────────────┬──────────────────────────────┐
+-- │   listen_uri    │        listen_url        │          auth_token          │
+-- ├─────────────────┼──────────────────────────┼──────────────────────────────┤
+-- │ odata:localhost │ http://localhost:54321   │ 120C318F6F3E221DFEE5D6A7860… │
+-- └─────────────────┴──────────────────────────┴──────────────────────────────┘
+```
+
+Requests must carry the token unless you disabled auth explicitly
+(`token := ''`):
+
 ```bash
-curl http://localhost:8080/odata/$metadata
-curl http://localhost:8080/odata/customers
-curl 'http://localhost:8080/odata/customers?$filter=active%20eq%20true&$top=10'
-curl http://localhost:8080/odata/customers(1)
+curl -H "Authorization: Bearer secret" http://localhost:8080/odata/$metadata
+curl -H "Authorization: Bearer secret" http://localhost:8080/odata/customers
+curl -H "Authorization: Bearer secret" 'http://localhost:8080/odata/customers?$filter=active%20eq%20true&$top=10'
+curl -H "Authorization: Bearer secret" http://localhost:8080/odata/customers(1)
 ```
 
 ## Feature scope

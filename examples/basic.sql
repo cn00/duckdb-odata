@@ -29,6 +29,8 @@ CALL odata_entity('customers', key := 'id');
 SET odata_max_top = 10000;
 
 -- start the server (default base path /odata)
+-- (no-arg form: CALL odata_serve() binds localhost to a free port, generates a
+--  bearer token and returns listen_url/auth_token — see README.md)
 CALL odata_serve('http://0.0.0.0:8080', token := 'secret');
 
 -- then, from another terminal:

@@ -24,6 +24,12 @@ Optional shared-secret bearer token (design doc §35):
 CALL odata_serve('http://0.0.0.0:8080', token := 'secret');
 ```
 
+Leaving the token out does **not** disable auth: `odata_serve()` generates a
+random 128-bit token (32 uppercase hex chars) and returns it in the
+`auth_token` column of its one-row result (`listen_uri`/`listen_url`/
+`auth_token`). Pass `token := ''` to run with authentication disabled — local
+development only.
+
 Requests must then send `Authorization: Bearer secret`; otherwise the server
 answers `401`. The scheme match is case-insensitive and the token comparison
 is constant-time. Tokens are compared in memory only; enable TLS via a reverse
