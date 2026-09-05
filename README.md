@@ -47,6 +47,47 @@ curl -H "Authorization: Bearer secret" 'http://localhost:8080/odata/customers?$f
 curl -H "Authorization: Bearer secret" http://localhost:8080/odata/customers(1)
 ```
 
+## Expose any data source (compose with other DuckDB extensions)
+
+`odata_expose` / `odata_expose_schema` whitelist *any* table **or view** in the
+DuckDB catalog — including views over files and databases opened by other
+DuckDB extensions. Whatever DuckDB can `SELECT`, you can serve as a
+read-only OData v4 API in a few lines:
+
+```sql
+-- Excel workbook (requires: INSTALL excel; LOAD excel)
+CREATE VIEW msxlsx AS SELECT * FROM read_xlsx('/data/Active.xlsx');
+CALL odata_expose('msxlsx');
+
+-- Attached SQL Server / Postgres / SQLite databases
+ATTACH 'Server=localhost,1433;Database=weconnect;User Id=sa;Password=xxx' AS ms1 (TYPE mssql);
+CALL odata_expose_schema('ms1.dbo');        -- every table of ms1.dbo
+
+ATTACH 'host=db.example.com port=5432 dbname=app user=svc password=yyy' AS pg (TYPE postgres);
+CALL odata_expose_schema('pg.public');
+
+ATTACH 'local.db' AS sq (TYPE sqlite);
+CALL odata_expose_schema('sq.main');
+
+-- Parquet / CSV on S3 (requires: INSTALL httpfs; LOAD httpfs)
+CREATE VIEW s3_events AS SELECT * FROM read_parquet('s3://bucket/events/*.parquet');
+CALL odata_expose('s3_events');
+
+CALL odata_serve();   -- read listen_url / auth_token from the result row
+```
+
+Notes:
+
+- **Live data, no copy**: every HTTP request runs a `SELECT` against the view
+  or attached table, so updates are reflected immediately.
+- **Catalog-qualified exposure** (`'ms1.dbo'`, `'db.schema.table'`) works for
+  attached databases; entity names stay collision-free across sources
+  (`expose_schema('ms1.dbo')` → entity `ms1_dbo_<table>`).
+- **Safe by default**: nothing is exposed until you whitelist it, v0.1 serves
+  `GET` only, and `odata_serve()` turns on bearer-token auth automatically.
+- Tables without a primary key can still be exposed; add
+  `CALL odata_entity('msxlsx', key := 'col')` to enable `(key)` lookups.
+
 ## Feature scope
 
 See [docs/architecture.md](docs/architecture.md), [docs/odata-support.md](docs/odata-support.md)
