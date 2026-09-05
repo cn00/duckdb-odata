@@ -5,11 +5,6 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      duckdb_version:
-        description: "DuckDB version to build against"
-        required: false
-        default: v1.5.5
 
 # Build the odata loadable extension against DuckDB core and run the HTTP
 # end-to-end tests with the official duckdb CLI of the same version.
@@ -17,32 +12,33 @@ on:
 # Design choice (see docs/design.md): the extension does NOT vendor DuckDB as
 # a git submodule. CI clones the pinned DuckDB source per job so the build
 # version can be matrixed and the extension repo stays small.
-
-env:
-  DUCKDB_VERSION: ${{ github.event.inputs.duckdb_version || 'v1.5.5' }}
+#
+# Version matrix is static (GitHub matrices are evaluated at parse time; they
+# cannot be driven by workflow_dispatch inputs). Add versions below as needed,
+# e.g. duckdb_version: [v1.4.3, v1.5.5].
 
 jobs:
-  build:
-    name: build odata (${{ matrix.os }})
+  build-and-test:
+    name: odata ${{ matrix.duckdb_version }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        # POSIX-only in v0.1 (self-hosted socket HTTP server); Windows lands later.
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest] # POSIX-only in v0.1 (self-hosted socket server); Windows later
+        duckdb_version: [v1.4.3, v1.5.5]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch DuckDB source (${{ env.DUCKDB_VERSION }})
+      - name: Fetch DuckDB source (${{ matrix.duckdb_version }})
         run: |
           DUCKDB_DIR_VERSION="${DUCKDB_VERSION#v}"   # v1.5.5 -> 1.5.5
           mkdir -p .dev
           curl -fL --retry 3 -o /tmp/duckdb.tar.gz \
-            "https://github.com/duckdb/duckdb/archive/refs/tags/${{ env.DUCKDB_VERSION }}.tar.gz"
+            "https://github.com/duckdb/duckdb/archive/refs/tags/${DUCKDB_VERSION}.tar.gz"
           tar -xzf /tmp/duckdb.tar.gz -C .dev
           mv ".dev/duckdb-${DUCKDB_DIR_VERSION}" .dev/duckdb
         env:
-          DUCKDB_VERSION: ${{ env.DUCKDB_VERSION }}
+          DUCKDB_VERSION: ${{ matrix.duckdb_version }}
 
       - name: Configure DuckDB build with the odata extension
         run: |
@@ -57,35 +53,27 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: odata-${{ env.DUCKDB_VERSION }}-${{ runner.os }}
+          name: odata-${{ matrix.duckdb_version }}-${{ runner.os }}
           path: .dev/duckdb/build/extension/odata/odata.duckdb_extension
           if-no-files-found: error
 
-  test-http:
-    name: HTTP end-to-end (ubuntu, ${{ env.DUCKDB_VERSION }})
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: odata-${{ env.DUCKDB_VERSION }}-Linux
-          path: ext/
-
-      - name: Download official duckdb CLI (${{ env.DUCKDB_VERSION }})
+      # HTTP e2e runs on the ubuntu combination only: it needs the official
+      # duckdb CLI (linux-amd64) to LOAD the just-built extension with -unsigned.
+      - name: Download official duckdb CLI (${{ matrix.duckdb_version }})
+        if: matrix.os == 'ubuntu-latest'
         run: |
           mkdir -p cli
           curl -fL --retry 3 -o cli/duckdb_cli.zip \
-            "https://github.com/duckdb/duckdb/releases/download/${{ env.DUCKDB_VERSION }}/duckdb_cli-linux-amd64.zip"
+            "https://github.com/duckdb/duckdb/releases/download/${{ matrix.duckdb_version }}/duckdb_cli-linux-amd64.zip"
           unzip -o cli/duckdb_cli.zip -d cli
           chmod +x cli/duckdb
           ./cli/duckdb --version
 
       - name: Run HTTP end-to-end tests
+        if: matrix.os == 'ubuntu-latest'
         run: |
           DUCKDB_CLI="$(find "${{ github.workspace }}/cli" -maxdepth 1 -type f -name 'duckdb*' -perm -u+x | head -1)"
           test -n "$DUCKDB_CLI"
           python3 test/http/odata_http_test.py \
             "$DUCKDB_CLI" \
-            "${{ github.workspace }}/ext/odata.duckdb_extension"
+            "${{ github.workspace }}/.dev/duckdb/build/extension/odata/odata.duckdb_extension"
