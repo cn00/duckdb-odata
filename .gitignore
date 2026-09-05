@@ -14,3 +14,6 @@ __pycache__/
 .vscode/
 duckdb_unittest_tempdir/
 test/http/.tmp/
+
+# Salesforce CLI cache (unrelated tooling dropped into the workspace)
+.sf/
