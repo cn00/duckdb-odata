@@ -42,8 +42,13 @@ jobs:
 
       - name: Configure DuckDB build with the odata extension
         run: |
+          # OVERRIDE_GIT_DESCRIBE pins the DuckDB version the extension footer
+          # claims. The source tarball has no .git, so without it DuckDB's CMake
+          # falls back to the dummy version "v0.0.1" and the produced extension
+          # cannot be LOADed by the official CLI of the pinned version.
           cmake -B .dev/duckdb/build -S .dev/duckdb \
             -DCMAKE_BUILD_TYPE=Release \
+            -DOVERRIDE_GIT_DESCRIBE="${{ matrix.duckdb_version }}" \
             -DDUCKDB_EXTENSION_CONFIGS="${{ github.workspace }}/extension_config.cmake"
 
       - name: Build loadable extension
