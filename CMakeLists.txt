@@ -7,14 +7,26 @@ set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
 project(${TARGET_NAME})
 
-set(CMAKE_CXX_STANDARD "17" CACHE STRING "C++ standard to enforce")
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# DuckDB's own build pins CMAKE_CXX_STANDARD=11 (see duckdb root CMakeLists).
+# Extensions must stay compatible with that standard, so we do not bump it.
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-include_directories(src/include)
-
-# NOTE: the source list is extended module by module as this repo matures.
 set(EXTENSION_SOURCES
     src/odata_extension.cpp
+    src/common/string_util.cpp
+    src/parser/lexer.cpp
+    src/parser/odata_parser.cpp
+    src/compiler/expression_compiler.cpp
+    src/compiler/sql_compiler.cpp
+    src/metadata/edm_model.cpp
+    src/metadata/metadata_generator.cpp
+    src/execution/query_executor.cpp
+    src/execution/result_serializer.cpp
+    src/server/http_request.cpp
+    src/server/http_response.cpp
+    src/server/http_server.cpp
+    src/server/odata_server.cpp
+    src/auth/auth.cpp
 )
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
