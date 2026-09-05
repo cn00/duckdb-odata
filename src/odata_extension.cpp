@@ -10,6 +10,7 @@
 
 #include "common/string_util.hpp"
 #include "metadata/metadata_generator.hpp"
+#include "parser/odata_parser.hpp"
 #include "server/odata_server.hpp"
 
 namespace duckdb {
@@ -146,23 +147,15 @@ void ActionExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 		if (action.arg.empty()) {
 			throw InvalidInputException("odata_expose requires a table name");
 		}
-		// fail fast: the table must resolve in the live catalog
-		{
+		EntityBinding binding;
+		try {
+			binding = duckdb_odata::ParseQualifiedBinding(action.arg);
 			duckdb::Connection con(*action.db);
-			auto res = con.Query("SELECT COUNT(*) FROM duckdb_columns() WHERE table_name = " +
-			                     duckdb_odata::QuoteStringLiteral(action.arg) + " AND NOT internal");
-			if (res->HasError()) {
-				throw InvalidInputException("odata_expose failed: %s", res->GetError());
-			}
-			if (res->GetValue(0, 0).GetValue<int64_t>() == 0) {
-				throw InvalidInputException("odata_expose: table '" + action.arg + "' does not exist");
-			}
+			duckdb_odata::ResolveBindingTable(con, binding);
+		} catch (const duckdb_odata::ODataParseException &e) {
+			throw InvalidInputException("odata_expose failed: %s", e.what());
 		}
 		auto state = GetStateFor(context);
-		EntityBinding binding;
-		binding.name = action.arg;
-		binding.table = action.arg;
-		binding.schema.clear(); // resolved at request time
 		// replace / append
 		bool replaced = false;
 		{
@@ -186,8 +179,9 @@ void ActionExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 		}
 		auto state = GetStateFor(context);
 		duckdb::Connection con(*action.db);
-		auto res = con.Query("SELECT table_name, schema_name FROM duckdb_tables() WHERE schema_name = " +
-		                     duckdb_odata::QuoteStringLiteral(action.arg) + " AND NOT internal");
+		auto res = con.Query("SELECT table_name, database_name FROM duckdb_tables() WHERE schema_name = " +
+		                     duckdb_odata::QuoteStringLiteral(action.arg) +
+		                     " AND NOT internal AND NOT temporary AND database_name = current_catalog()");
 		if (res->HasError()) {
 			throw InvalidInputException("odata_expose_schema failed: %s", res->GetError());
 		}
@@ -197,14 +191,20 @@ void ActionExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 				continue;
 			}
 			EntityBinding binding;
-			binding.name = tname;
 			binding.table = tname;
 			binding.schema = action.arg;
+			binding.catalog = res->GetValue(1, r).ToString();
+			// Public entity name: keep the bare table name (schema is only used
+			// for qualified resolution; uniqueness is the caller's concern for
+			// per-schema exposure).
+			binding.name = tname;
 			{
 				std::lock_guard<std::mutex> lock(state->mu);
 				bool found = false;
 				for (auto &b : state->bindings) {
-					if (StringUtil::Lower(b.name) == StringUtil::Lower(binding.name)) {
+					if (StringUtil::Lower(b.name) == StringUtil::Lower(binding.name) &&
+					    StringUtil::Lower(b.schema) == StringUtil::Lower(binding.schema) &&
+					    StringUtil::Lower(b.catalog) == StringUtil::Lower(binding.catalog)) {
 						b = binding;
 						found = true;
 						break;
@@ -221,11 +221,16 @@ void ActionExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 		if (action.arg.empty() || action.key.empty()) {
 			throw InvalidInputException("odata_entity requires a table name and a key column");
 		}
-		auto state = GetStateFor(context);
 		EntityBinding binding;
-		binding.name = action.arg;
-		binding.table = action.arg;
+		try {
+			binding = duckdb_odata::ParseQualifiedBinding(action.arg);
+			duckdb::Connection con(*action.db);
+			duckdb_odata::ResolveBindingTable(con, binding);
+		} catch (const duckdb_odata::ODataParseException &e) {
+			throw InvalidInputException("odata_entity failed: %s", e.what());
+		}
 		binding.configured_keys.push_back(action.key);
+		auto state = GetStateFor(context);
 		std::lock_guard<std::mutex> lock(state->mu);
 		bool replaced = false;
 		for (auto &b : state->bindings) {

@@ -9,8 +9,12 @@ namespace duckdb_odata {
 namespace {
 
 std::string QuotedTable(const EdmEntity &entity) {
-	// Prefer fully qualified name if we recorded schema; otherwise rely on
-	// DuckDB search path (MVP).
+	// Fully qualify when catalog/schema are known; otherwise let DuckDB's
+	// search path resolve the (possibly schema-scoped) name.
+	if (!entity.catalog.empty() && !entity.schema.empty()) {
+		return QuoteIdentifier(entity.catalog) + "." + QuoteIdentifier(entity.schema) + "." +
+		       QuoteIdentifier(entity.table);
+	}
 	if (!entity.schema.empty()) {
 		return QuoteIdentifier(entity.schema) + "." + QuoteIdentifier(entity.table);
 	}
