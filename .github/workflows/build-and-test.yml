@@ -63,7 +63,7 @@ jobs:
 
       - name: Build loadable extension
         run: |
-          cmake --build .dev/duckdb/build --target odata_loadable_extension -j 2
+          cmake --build .dev/duckdb/build --target odata_loadable_extension
           ls -la .dev/duckdb/build/extension/odata/odata.duckdb_extension
 
       - uses: actions/upload-artifact@v4

@@ -5,6 +5,9 @@ set(TARGET_NAME odata)
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
+cmake_host_system_information(RESULT CORE_COUNT QUERY NUMBER_OF_LOGICAL_CORES)
+set(CMAKE_BUILD_PARALLEL_LEVEL ${CORE_COUNT} CACHE STRING "Number of parallel build jobs")
+
 project(${TARGET_NAME})
 
 # DuckDB's own build pins CMAKE_CXX_STANDARD=11 (see duckdb root CMakeLists).
