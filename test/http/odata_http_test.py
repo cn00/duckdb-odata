@@ -63,6 +63,17 @@ def get(path, token=None):
         return e.code, e.read().decode()
 
 
+def wait_for_server(timeout=10):
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return get("/health", token="secret")
+        except urllib.error.URLError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.1)
+
+
 def main():
     if not DUCKDB:
         print("duckdb binary not found; pass it as argv[1] or set DUCKDB env / PATH", file=sys.stderr)
@@ -83,9 +94,7 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
     try:
         proc.stdin.write(sql)
         proc.stdin.flush()
-        time.sleep(2.0)
-
-        s, b = get("/health", token="secret")
+        s, b = wait_for_server()
         check("health", s == 200 and json.loads(b) == {"status": "ok"}, b)
 
         s, b = get("/odata", token="secret")
