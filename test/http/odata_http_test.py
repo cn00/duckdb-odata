@@ -63,6 +63,27 @@ def get(path, token=None):
         return e.code, e.read().decode()
 
 
+def wait_for_server(proc, timeout=30):
+    """Poll /health until the duckdb server is listening.
+
+    On timeout, dump the duckdb process output: silent startup failures (for
+    example a version-mismatched LOAD) would otherwise surface only as
+    ConnectionRefused with no diagnostics.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            return get("/health", token="secret")
+        except urllib.error.URLError:
+            if proc.poll() is not None:
+                # process exited early: report its output
+                out = proc.stdout.read() if proc.stdout else ""
+                raise RuntimeError(f"duckdb exited early (rc={proc.returncode}). Output:\n{out}")
+            time.sleep(0.2)
+    out = proc.stdout.read() if proc.stdout else ""
+    raise RuntimeError(f"timed out waiting for OData server. duckdb output:\n{out}")
+
+
 def main():
     if not DUCKDB:
         print("duckdb binary not found; pass it as argv[1] or set DUCKDB env / PATH", file=sys.stderr)
@@ -91,9 +112,8 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
     try:
         proc.stdin.write(sql)
         proc.stdin.flush()
-        time.sleep(2.0)
 
-        s, b = get("/health", token="secret")
+        s, b = wait_for_server(proc)
         check("health", s == 200 and json.loads(b) == {"status": "ok"}, b)
 
         s, b = get("/odata", token="secret")
@@ -154,10 +174,13 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
         s, b = get("/odata/$metadata", token="secret")
         check("metadata has schema-qualified entity", s == 200 and "s1_customers" in b and "customers" in b, b[:200])
     finally:
-        if proc.stdin:
-            proc.stdin.write("\nCALL odata_stop();\n.exit\n")
-            proc.stdin.flush()
-            proc.stdin.close()
+        try:
+            if proc.stdin:
+                proc.stdin.write("\nCALL odata_stop();\n.exit\n")
+                proc.stdin.flush()
+                proc.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
