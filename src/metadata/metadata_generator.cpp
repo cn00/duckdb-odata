@@ -44,15 +44,6 @@ std::string GetString(duckdb::unique_ptr<MaterializedQueryResult> &result, idx_t
 	return value.ToString();
 }
 
-std::vector<std::string> TableNamesOf(const EdmModel &model) {
-	std::vector<std::string> names;
-	names.reserve(model.entities.size());
-	for (auto &e : model.entities) {
-		names.push_back(e.table);
-	}
-	return names;
-}
-
 } // namespace
 
 EdmEntity MetadataGenerator::BuildEntity(const EntityBinding &binding) const {

@@ -5,7 +5,10 @@
 DUCKDB_SRC ?= $(CURDIR)/.dev/duckdb
 BUILD_DIR ?= $(DUCKDB_SRC)/build
 
-.PHONY: build test-http clean configure
+.PHONY: build test-http clean configure fetch-duckdb
+
+fetch-duckdb:
+	bash scripts/fetch_duckdb.sh v1.5.5 $(DUCKDB_SRC)
 
 configure:
 	cmake -B $(BUILD_DIR) -S $(DUCKDB_SRC) -DCMAKE_BUILD_TYPE=Release \
