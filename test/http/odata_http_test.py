@@ -10,6 +10,7 @@ the JSON/XML responses. Requires a `duckdb` binary able to load the extension
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -63,6 +64,18 @@ def get(path, token=None):
         return e.code, e.read().decode()
 
 
+def http_get(base, path, token=None):
+    """get() for a caller-supplied base URL (used by the defaults check)."""
+    req = urllib.request.Request(base + path)
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, r.read().decode()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode()
+
+
 def wait_for_server(proc, timeout=30):
     """Poll /health until the duckdb server is listening.
 
@@ -82,6 +95,70 @@ def wait_for_server(proc, timeout=30):
             time.sleep(0.2)
     out = proc.stdout.read() if proc.stdout else ""
     raise RuntimeError(f"timed out waiting for OData server. duckdb output:\n{out}")
+
+
+def check_default_serve():
+    """CALL odata_serve() with no arguments: free port + auto-generated token.
+
+    Spawns a second duckdb CLI, lets the extension pick the endpoint, parses
+    the printed row (listen_url / auth_token) back from stdout, then exercises
+    the running server over HTTP with the returned token.
+    """
+    sql = f"""
+LOAD '{EXT}';
+CREATE TABLE t_defaults (id BIGINT, name VARCHAR);
+INSERT INTO t_defaults VALUES (1, 'auto'), (2, 'auto2');
+CALL odata_expose('t_defaults');
+SELECT * FROM odata_serve();
+"""
+    proc = subprocess.Popen([DUCKDB, "-unsigned"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True)
+    try:
+        proc.stdin.write(sql)
+        proc.stdin.flush()
+
+        out = ""
+        base = None
+        token = None
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            out += line
+            if base is None:
+                m = re.search(r"http://localhost:(\d+)", out)
+                if m:
+                    base = f"http://localhost:{m.group(1)}"
+            if token is None:
+                m = re.search(r"\b([0-9A-F]{32})\b", out)
+                if m:
+                    token = m.group(1)
+            if base and token:
+                break
+        if not base or not token:
+            raise RuntimeError(f"could not read odata_serve() row from duckdb output:\n{out}")
+
+        check("defaults: free port + 32-hex token", base is not None and token is not None, f"{base} {token}")
+        s, b = http_get(base, "/health", token)
+        check("defaults: /health with auto token", s == 200 and json.loads(b) == {"status": "ok"}, b)
+        s, _ = http_get(base, "/health")
+        check("defaults: no token -> 401", s == 401, "")
+        s, b = http_get(base, "/odata/t_defaults", token)
+        doc = json.loads(b)
+        check("defaults: entity set via auto-token server", s == 200 and len(doc["value"]) == 2, b)
+    finally:
+        try:
+            if proc.stdin:
+                proc.stdin.write("\nCALL odata_stop();\n.exit\n")
+                proc.stdin.flush()
+                proc.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
 
 
 def main():
@@ -196,6 +273,13 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
+
+    # Phase 2: zero-argument odata_serve() (free port + auto-generated token).
+    try:
+        check_default_serve()
+    except RuntimeError as e:
+        failures.append("defaults odata_serve()")
+        print(f"[FAIL] defaults odata_serve() -- {e}")
 
     if failures:
         print(f"\n{len(failures)} FAILURES")

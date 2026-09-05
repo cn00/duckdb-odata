@@ -1,6 +1,7 @@
 #include "odata_extension.hpp"
 
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/function/function_set.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/config.hpp"
@@ -9,6 +10,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "common/string_util.hpp"
+#include "auth/auth.hpp"
 #include "metadata/metadata_generator.hpp"
 #include "parser/odata_parser.hpp"
 #include "server/odata_server.hpp"
@@ -21,13 +23,11 @@ using duckdb_odata::ODataServerState;
 
 namespace {
 
-enum class ODataActionKind { SERVE, STOP, EXPOSE, EXPOSE_SCHEMA, ENTITY };
+enum class ODataActionKind { STOP, EXPOSE, EXPOSE_SCHEMA, ENTITY };
 
 struct ODataActionData : public TableFunctionData {
 	ODataActionKind kind;
-	std::string arg;         // address / table / schema
-	std::string token;       // odata_serve token
-	std::string base_path;   // odata_serve base_path
+	std::string arg;         // table / schema
 	std::string key;         // odata_entity key column
 	shared_ptr<DatabaseInstance> db; // strong ref keeps instance alive
 	int64_t max_top = 10000;
@@ -38,6 +38,70 @@ struct ODataGlobalState : public GlobalTableFunctionState {
 	}
 	bool done;
 };
+
+// ---- odata_serve(): quack-style one-row result ---------------------------
+
+struct ODataServeData : public TableFunctionData {
+	// call inputs (all optional, defaults mirror quack_serve)
+	std::string address;   // empty => localhost on a free port
+	std::string token;     // honored only when token_provided
+	bool token_provided = false;
+	std::string base_path; // empty => "/odata"
+	shared_ptr<DatabaseInstance> db; // keeps the instance alive while serving
+};
+
+unique_ptr<FunctionData> ServeBind(ClientContext &context, TableFunctionBindInput &input,
+                                   vector<LogicalType> &return_types, vector<string> &names) {
+	auto result = make_uniq<ODataServeData>();
+	result->db = context.db;
+	if (!input.inputs.empty()) {
+		result->address = input.inputs[0].ToString();
+	}
+	auto it = input.named_parameters.find("token");
+	if (it != input.named_parameters.end()) {
+		result->token = it->second.ToString();
+		result->token_provided = true;
+	}
+	it = input.named_parameters.find("base_path");
+	if (it != input.named_parameters.end()) {
+		result->base_path = it->second.ToString();
+	}
+	// quack_serve-style output: one row reporting the effective endpoint
+	return_types.push_back(LogicalType::VARCHAR);
+	names.emplace_back("listen_uri");
+	return_types.push_back(LogicalType::VARCHAR);
+	names.emplace_back("listen_url");
+	return_types.push_back(LogicalType::VARCHAR);
+	names.emplace_back("auth_token");
+	return std::move(result);
+}
+
+void ServeExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
+	auto &global = data_p.global_state->Cast<ODataGlobalState>();
+	if (global.done) {
+		return;
+	}
+	global.done = true;
+
+	auto &serve = data_p.bind_data->Cast<ODataServeData>();
+	// odata_serve() with no explicit token starts an authenticated server and
+	// reports the auto-generated token back to the caller.
+	std::string token = serve.token;
+	if (!serve.token_provided) {
+		token = duckdb_odata::GenerateAuthToken();
+	}
+	auto state = duckdb_odata::ODataServerRegistry::Get().GetOrCreate(*serve.db);
+	std::string error;
+	if (!duckdb_odata::StartODataServer(*state, serve.address, token, serve.base_path, error)) {
+		throw InvalidInputException("odata_serve failed: %s", error);
+	}
+	// bind data is const during execute; report the effective endpoint
+	// straight from the registry state (StartODataServer filled it in).
+	output.SetCardinality(1);
+	output.SetValue(0, 0, Value(state->listen_uri));
+	output.SetValue(1, 0, Value(state->listen_url));
+	output.SetValue(2, 0, Value(state->token));
+}
 
 unique_ptr<FunctionData> CommonBind(ClientContext &context, ODataActionKind kind, TableFunctionBindInput &input,
                                     vector<LogicalType> &return_types, vector<string> &names) {
@@ -53,24 +117,6 @@ unique_ptr<FunctionData> CommonBind(ClientContext &context, ODataActionKind kind
 	return_types.push_back(LogicalType::BOOLEAN);
 	names.emplace_back("Success");
 	return std::move(result);
-}
-
-unique_ptr<FunctionData> ServeBind(ClientContext &context, TableFunctionBindInput &input,
-                                   vector<LogicalType> &return_types, vector<string> &names) {
-	auto data = CommonBind(context, ODataActionKind::SERVE, input, return_types, names);
-	auto &d = data->Cast<ODataActionData>();
-	if (!input.inputs.empty()) {
-		d.arg = input.inputs[0].ToString();
-	}
-	auto it = input.named_parameters.find("token");
-	if (it != input.named_parameters.end()) {
-		d.token = it->second.ToString();
-	}
-	it = input.named_parameters.find("base_path");
-	if (it != input.named_parameters.end()) {
-		d.base_path = it->second.ToString();
-	}
-	return data;
 }
 
 unique_ptr<FunctionData> StopBind(ClientContext &context, TableFunctionBindInput &input,
@@ -128,14 +174,6 @@ void ActionExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 
 	auto &action = data_p.bind_data->Cast<ODataActionData>();
 	switch (action.kind) {
-	case ODataActionKind::SERVE: {
-		auto state = GetStateFor(context);
-		std::string error;
-		if (!StartODataServer(*state, action.arg, action.token, action.base_path, error)) {
-			throw InvalidInputException("odata_serve failed: %s", error);
-		}
-		break;
-	}
 	case ODataActionKind::STOP: {
 		auto state = ODataServerRegistry::Get().Find(*context.db);
 		if (state) {
@@ -279,7 +317,7 @@ void StatusExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 
 	auto state = ODataServerRegistry::Get().Find(*context.db);
 	bool running = state ? state->running : false;
-	std::string address = state ? state->started_address : "";
+	std::string address = state && !state->listen_url.empty() ? state->listen_url : (state ? state->started_address : "");
 	std::string base_path = state ? state->base_path : "/odata";
 	bool token_required = state ? !state->token.empty() : false;
 	idx_t entity_count = state ? state->bindings.size() : 0;
@@ -307,10 +345,18 @@ void RegisterOptions(DatabaseInstance &db) {
 void LoadInternal(ExtensionLoader &loader) {
 	RegisterOptions(loader.GetDatabaseInstance());
 
-	TableFunction serve("odata_serve", {LogicalType::VARCHAR}, ActionExecute, ServeBind, CommonInit);
-	serve.named_parameters["token"] = LogicalType::VARCHAR;
-	serve.named_parameters["base_path"] = LogicalType::VARCHAR;
-	loader.RegisterFunction(serve);
+	// odata_serve(): no-arg (defaults: localhost on a free port, auto token)
+	// and single-address overloads; both accept token/base_path named params.
+	TableFunction serve0("odata_serve", {}, ServeExecute, ServeBind, CommonInit);
+	serve0.named_parameters["token"] = LogicalType::VARCHAR;
+	serve0.named_parameters["base_path"] = LogicalType::VARCHAR;
+	TableFunction serve1("odata_serve", {LogicalType::VARCHAR}, ServeExecute, ServeBind, CommonInit);
+	serve1.named_parameters["token"] = LogicalType::VARCHAR;
+	serve1.named_parameters["base_path"] = LogicalType::VARCHAR;
+	TableFunctionSet serve_set("odata_serve");
+	serve_set.AddFunction(serve0);
+	serve_set.AddFunction(serve1);
+	loader.RegisterFunction(serve_set);
 
 	TableFunction stop("odata_stop", {}, ActionExecute, StopBind, CommonInit);
 	loader.RegisterFunction(stop);

@@ -40,6 +40,11 @@ public:
 	bool Start(const std::string &host, int port, HttpHandler handler) override;
 	void Stop() override;
 	bool IsRunning() const override;
+	// Actual bound port (useful when the server was started with port 0,
+	// i.e. "pick a free port").
+	int GetBoundPort() const {
+		return port;
+	}
 
 private:
 	void AcceptLoop();

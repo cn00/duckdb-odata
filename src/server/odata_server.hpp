@@ -48,6 +48,9 @@ public:
 	bool running = false;
 	std::string started_at;
 	std::string started_address;
+	// Effective endpoint once bound (address may be empty/"localhost:0").
+	std::string listen_uri;  // e.g. "odata:localhost" (quack-style)
+	std::string listen_url;  // e.g. "http://localhost:34567"
 	std::shared_ptr<HttpServer> server;
 };
 
@@ -71,6 +74,8 @@ private:
 HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &request);
 
 // start/stop helpers used by the SQL-level procedures
+// Empty address means "localhost on a free port". On success the state's
+// host/port/listen_uri/listen_url reflect the real bound endpoint.
 bool StartODataServer(ODataServerState &state, const std::string &address, const std::string &token,
                       const std::string &base_path, std::string &error);
 void StopODataServer(ODataServerState &state);

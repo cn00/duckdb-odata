@@ -61,14 +61,23 @@ bool SocketHttpServer::Start(const std::string &host_p, int port_p, HttpHandler 
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(static_cast<uint16_t>(port));
-	if (host.empty() || host == "0.0.0.0") {
+	if (host.empty() || host == "0.0.0.0" || host == "::") {
 		addr.sin_addr.s_addr = INADDR_ANY;
 	} else {
-		if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1) {
+		// resolve a hostname (e.g. "localhost") or IPv4 literal
+		struct addrinfo hints;
+		memset(&hints, 0, sizeof(hints));
+		hints.ai_family = AF_INET;
+		hints.ai_socktype = SOCK_STREAM;
+		struct addrinfo *result = nullptr;
+		if (getaddrinfo(host.c_str(), nullptr, &hints, &result) != 0 || !result) {
 			close(listen_fd);
 			listen_fd = -1;
 			return false;
 		}
+		auto *sin = reinterpret_cast<struct sockaddr_in *>(result->ai_addr);
+		addr.sin_addr = sin->sin_addr;
+		freeaddrinfo(result);
 	}
 	if (bind(listen_fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) != 0) {
 		close(listen_fd);
@@ -79,6 +88,15 @@ bool SocketHttpServer::Start(const std::string &host_p, int port_p, HttpHandler 
 		close(listen_fd);
 		listen_fd = -1;
 		return false;
+	}
+	// port 0 => kernel picked a free port; read it back so callers can
+	// report the real listen_url (like quack_serve does).
+	if (port == 0) {
+		sockaddr_in bound;
+		socklen_t bound_len = sizeof(bound);
+		if (getsockname(listen_fd, reinterpret_cast<struct sockaddr *>(&bound), &bound_len) == 0) {
+			port = ntohs(bound.sin_port);
+		}
 	}
 	stop_requested = false;
 	running = true;

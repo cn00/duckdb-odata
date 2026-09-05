@@ -2,6 +2,8 @@
 
 #include "common/string_util.hpp"
 
+#include <random>
+
 namespace duckdb_odata {
 
 bool CheckBearerToken(const std::string &authorization_header, const std::string &expected_token) {
@@ -27,6 +29,20 @@ bool CheckBearerToken(const std::string &authorization_header, const std::string
 		diff |= static_cast<unsigned char>(token[i] ^ expected_token[i]);
 	}
 	return diff == 0;
+}
+
+std::string GenerateAuthToken() {
+	static const char *hex = "0123456789ABCDEF";
+	std::random_device rd;
+	std::uniform_int_distribution<int> byte(0, 255);
+	std::string token;
+	token.reserve(32);
+	for (int i = 0; i < 16; i++) {
+		int b = byte(rd);
+		token += hex[(b >> 4) & 0xF];
+		token += hex[b & 0xF];
+	}
+	return token;
 }
 
 } // namespace duckdb_odata

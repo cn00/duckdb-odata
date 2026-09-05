@@ -75,12 +75,18 @@ std::string EntityContextUri(const ODataServerState &state, const std::string &e
 	return ctx;
 }
 
-// Parse an absolute address "http://host:port[/path]"
+// Parse an absolute address "http://host:port[/path]".
+// An empty address means the default: localhost on a free port.
 bool ParseAddress(const std::string &address, std::string &host, int &port, std::string &path) {
 	host = "0.0.0.0";
 	port = 8080;
 	path = "/odata";
 	std::string a = address;
+	if (a.empty()) {
+		host = "localhost";
+		port = 0; // OS assigns a free port
+		return true;
+	}
 	// strip scheme
 	auto scheme = a.find("://");
 	if (scheme != std::string::npos) {
@@ -222,6 +228,16 @@ bool StartODataServer(ODataServerState &state, const std::string &address, const
 		error = "could not bind to " + host + ":" + std::to_string(port);
 		return false;
 	}
+	// report the effective endpoint (port may have been auto-assigned)
+	port = server->GetBoundPort();
+	if (host == "0.0.0.0" || host == "::") {
+		// 0.0.0.0 is not a usable connect target; advertise localhost
+		state.listen_url = "http://localhost:" + std::to_string(port);
+		state.listen_uri = "odata:localhost";
+	} else {
+		state.listen_url = "http://" + host + ":" + std::to_string(port);
+		state.listen_uri = "odata:" + host;
+	}
 	state.host = host;
 	state.port = port;
 	state.base_path = base_path.empty() ? path : base_path;
@@ -229,7 +245,7 @@ bool StartODataServer(ODataServerState &state, const std::string &address, const
 	state.server = server;
 	state.running = true;
 	state.started_at = "now";
-	state.started_address = address;
+	state.started_address = address.empty() ? state.listen_url : address;
 	return true;
 }
 void StopODataServer(ODataServerState &state) {
