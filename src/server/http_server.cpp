@@ -7,6 +7,8 @@
 #include <unistd.h>
 
 #include <cstring>
+#include <exception>
+#include <string>
 #include <vector>
 
 namespace duckdb_odata {
@@ -103,20 +105,32 @@ void SocketHttpServer::AcceptLoop() {
 }
 
 void SocketHttpServer::HandleConnection(int client_fd) {
-	std::string head;
-	bool ok = ReadRequestHead(client_fd, head);
 	HttpResponse response;
-	if (!ok) {
-		response.status = 400;
-		response.body = "400 Bad Request";
-	} else {
-		HttpRequest request;
-		if (!ParseHttpRequest(head, request)) {
+	try {
+		std::string head;
+		bool ok = ReadRequestHead(client_fd, head);
+		if (!ok) {
 			response.status = 400;
 			response.body = "400 Bad Request";
 		} else {
-			response = handler(request);
+			HttpRequest request;
+			if (!ParseHttpRequest(head, request)) {
+				response.status = 400;
+				response.body = "400 Bad Request";
+			} else {
+				response = handler(request);
+			}
 		}
+	} catch (const std::exception &ex) {
+		// never let a request-handler exception escape a connection thread:
+		// an uncaught exception there would std::terminate the whole process
+		response.status = 500;
+		response.headers["Content-Type"] = "application/json";
+		response.body = "{\"error\":{\"code\":\"500\",\"message\":\"" + std::string(ex.what()) + "\"}}";
+	} catch (...) {
+		response.status = 500;
+		response.headers["Content-Type"] = "application/json";
+		response.body = "{\"error\":{\"code\":\"500\",\"message\":\"internal error\"}}";
 	}
 	if (!response.headers.count("Content-Type")) {
 		response.headers["Content-Type"] = "text/plain";

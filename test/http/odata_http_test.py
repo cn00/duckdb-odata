@@ -154,6 +154,17 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
         s, b = get("/odata/customers?$filter=unknown%20eq%201", token="secret")
         check("unknown property -> 400", s == 400 and "unknown" in b, b)
 
+        # malformed filters must yield 400 and never crash the server process
+        s, b = get("/odata/customers?$filter=name%20eq%20@", token="secret")
+        check("bad filter char -> 400", s == 400, b)
+        check("process survives bad filter", proc.poll() is None, "")
+
+        # double-quoted string literals are tolerated (common in the wild)
+        s, b = get('/odata/customers?$filter=name%20eq%20%22Bob%22', token="secret")
+        doc = json.loads(b)
+        check("double-quoted filter", s == 200 and [r["id"] for r in doc["value"]] == [2], b)
+        check("process survives double-quote filter", proc.poll() is None, "")
+
         s, b = get("/odata/customers?$expand=customer", token="secret")
         check("unsupported option -> 400", s == 400, b)
 

@@ -9,20 +9,12 @@
 #pragma once
 
 #include "parser/ast.hpp"
+#include "parser/errors.hpp"
 
-#include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace duckdb_odata {
-
-// Thrown for any OData syntax / semantic error that should surface as a
-// 400 Bad Request with a readable message.
-class ODataParseException : public std::runtime_error {
-public:
-	explicit ODataParseException(const std::string &msg) : std::runtime_error(msg) {
-	}
-};
 
 // Parse a $filter expression into an AST. Throws ODataParseException.
 std::unique_ptr<Expr> ParseFilter(const std::string &filter);

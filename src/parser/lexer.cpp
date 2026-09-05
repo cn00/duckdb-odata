@@ -76,16 +76,16 @@ std::vector<Token> Tokenize(const std::string &input) {
 		Token token;
 		token.line = static_cast<int>(line);
 
-		// string literal: '...'  ('' escapes a quote)
-		if (c == '\'') {
-			size_t start = i;
+		// string literal: '...' or "..."  ('' / "" escapes the quote char)
+		if (c == '\'' || c == '"') {
+			char quote = c;
 			i++;
 			std::string value;
 			bool closed = false;
 			while (i < input.size()) {
-				if (input[i] == '\'') {
-					if (i + 1 < input.size() && input[i + 1] == '\'') {
-						value += '\'';
+				if (input[i] == quote) {
+					if (i + 1 < input.size() && input[i + 1] == quote) {
+						value += quote;
 						i += 2;
 						continue;
 					}
@@ -97,12 +97,11 @@ std::vector<Token> Tokenize(const std::string &input) {
 				i++;
 			}
 			if (!closed) {
-				throw std::runtime_error("Unterminated string literal in $filter");
+				throw ODataParseException("Unterminated string literal in $filter");
 			}
 			token.type = TokenType::STRING;
 			token.text = value;
 			tokens.push_back(token);
-			(void)start;
 			continue;
 		}
 
@@ -194,7 +193,7 @@ std::vector<Token> Tokenize(const std::string &input) {
 			token.text = ":";
 			break;
 		default:
-			throw std::runtime_error(std::string("Unexpected character '") + c + "' in $filter");
+			throw ODataParseException(std::string("Unexpected character '") + c + "' in $filter");
 		}
 		tokens.push_back(token);
 		i++;
