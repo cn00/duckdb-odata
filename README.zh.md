@@ -98,6 +98,18 @@ CALL odata_serve();   -- 从返回行读取 listen_url / auth_token
 
 本地开发流程见 [docs/architecture.md](docs/architecture.md#building)。
 
+## 发布 Release
+
+打 tag 即可触发全矩阵构建并把扩展作为 GitHub Release assets 发布：
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+CI 会把每个受支持的 DuckDB 版本 / ABI 的产物
+`odata-<duckdb版本>-<platform>.duckdb_extension`（外加 `sha256sums.txt`）
+附加到对应 release。
+
 ## 许可证
 
 MIT —— 见 [LICENSE](LICENSE)。

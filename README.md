@@ -102,6 +102,18 @@ tokens and the Quack gateway executor are staged for later versions.
 See [docs/architecture.md](docs/architecture.md#building) for the local
 development workflow.
 
+## Releasing
+
+Tag a release to build the full matrix and publish the extensions as GitHub
+Release assets:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+CI then attaches `odata-<duckdb-version>-<platform>.duckdb_extension` for every
+supported DuckDB version / ABI (plus a `sha256sums.txt`) to the release.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
