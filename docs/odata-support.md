@@ -89,6 +89,15 @@ DuckDB → EDM mapping (see `src/metadata/edm_model.*`):
 - Entity set name defaults to the DuckDB table name; keys come from
   `odata_entity(...)` or the catalog (single PK), falling back to the first
   column for keyless tables.
+- Schema-qualified exposure: `CALL odata_expose('sales.customers')` registers
+  the table from schema `sales` under the public entity-set name
+  `sales_customers`, i.e. `GET /odata/sales_customers`. Unqualified names
+  resolve in the current schema, or in the single schema that owns the table;
+  if the same table name exists in several schemas, `odata_expose` raises an
+  ambiguity error asking for `schema.table`.
+- `CALL odata_expose_schema('sales')` exposes every base table of that schema
+  in the current catalog (public names stay bare; schema is retained for
+  resolution).
 - Exposed table names are matched case-insensitively; responses echo the
   catalog's canonical casing.
 - JSON follows OData v4 minimal metadata: `@odata.context`,

@@ -76,6 +76,14 @@ INSERT INTO customers VALUES
   (3, 'Carol', true);
 CALL odata_expose('customers');
 CALL odata_entity('customers', key := 'id');
+
+-- multi-schema: s1.customers is exposed as the "s1_customers" entity set
+CREATE SCHEMA s1;
+CREATE TABLE s1.customers (id BIGINT, name VARCHAR);
+INSERT INTO s1.customers VALUES (10, 'SchemaAlice'), (11, 'SchemaBob');
+CALL odata_expose('s1.customers');
+CALL odata_entity('s1.customers', key := 'id');
+
 CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
 """
     proc = subprocess.Popen([DUCKDB, "-unsigned"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -134,6 +142,17 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
 
         s, b = get("/odata/customers")
         check("no token -> 401", s == 401, b)
+
+        # multi-schema checks
+        s, b = get("/odata/s1_customers", token="secret")
+        doc = json.loads(b)
+        check("schema-qualified entity set", s == 200 and [r["id"] for r in doc["value"]] == [10, 11], b)
+
+        s, b = get("/odata/s1_customers(10)", token="secret")
+        check("schema-qualified key lookup", s == 200 and json.loads(b).get("name") == "SchemaAlice", b)
+
+        s, b = get("/odata/$metadata", token="secret")
+        check("metadata has schema-qualified entity", s == 200 and "s1_customers" in b and "customers" in b, b[:200])
     finally:
         if proc.stdin:
             proc.stdin.write("\nCALL odata_stop();\n.exit\n")
