@@ -70,8 +70,8 @@ Registered by `src/odata_extension.cpp` (see `ODataExtension::Load`):
 | `CALL odata_serve('http://0.0.0.0:8080', token := '…', base_path := '/odata')` | start HTTP server on the calling database instance (pinned address / token / base path) |
 | `CALL odata_stop()` | stop the server for this instance |
 | `SELECT * FROM odata_status()` | server/registry state |
-| `CALL odata_expose('customers')` | whitelist a table as an entity set |
-| `CALL odata_expose_schema('main')` | whitelist every base table of a schema |
+| `CALL odata_expose('customers')` | whitelist a table as an entity set; returns one `(entity, table)` row |
+| `CALL odata_expose_schema('main')` | whitelist every base table of a schema; returns a `(entity, table)` row per table |
 | `CALL odata_entity('customers', key := 'id')` | configure entity key columns |
 
 Configuration options registered via `DBConfig::AddExtensionOption`
