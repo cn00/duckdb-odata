@@ -29,11 +29,11 @@ jobs:
         include:
           # v1.5.5: build + e2e on every ABI
           - { os: ubuntu-latest, duckdb_version: v1.5.5, platform: linux_amd64, cli_asset: duckdb_cli-linux-amd64.zip, run_e2e: true }
-          - { os: macos-13,      duckdb_version: v1.5.5, platform: osx_amd64,   cli_asset: duckdb_cli-osx-amd64.zip,   run_e2e: true }
+          - { os: [self-hosted,macOS,X64],      duckdb_version: v1.5.5, platform: osx_amd64,   cli_asset: duckdb_cli-osx-amd64.zip,   run_e2e: true }
           - { os: macos-latest,  duckdb_version: v1.5.5, platform: osx_arm64,   cli_asset: duckdb_cli-osx-arm64.zip,   run_e2e: true }
           # v1.4.3: same coverage (official CLIs are published for all ABIs)
           - { os: ubuntu-latest, duckdb_version: v1.4.3, platform: linux_amd64, cli_asset: duckdb_cli-linux-amd64.zip, run_e2e: true }
-          - { os: macos-13,      duckdb_version: v1.4.3, platform: osx_amd64,   cli_asset: duckdb_cli-osx-amd64.zip,   run_e2e: true }
+          - { os: [self-hosted,macOS,X64],      duckdb_version: v1.4.3, platform: osx_amd64,   cli_asset: duckdb_cli-osx-amd64.zip,   run_e2e: true }
           - { os: macos-latest,  duckdb_version: v1.4.3, platform: osx_arm64,   cli_asset: duckdb_cli-osx-arm64.zip,   run_e2e: true }
     runs-on: ${{ matrix.os }}
     steps:
