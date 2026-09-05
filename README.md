@@ -1,5 +1,7 @@
 # duckdb-odata
 
+> English | [中文版](README.zh.md)
+
 OData v4 server as a DuckDB extension — serve any exposed DuckDB table as an
 OData EntitySet with `$select`, `$filter`, `$orderby`, `$top`, `$skip` and
 `$count`, plus an auto-generated `$metadata` (EDMX) from the live DuckDB
