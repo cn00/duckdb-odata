@@ -1,7 +1,7 @@
 # duckdb-odata architecture
 
-> Current version: **0.1.0** (design doc "Milestones 0–5": skeleton, HTTP,
-> metadata, entity API, query options, v0.1 security). The full design
+> Current version: **0.2.0** (v0.1 core plus column policy, server-driven
+> pagination and enforced resource limits). The full design
 > rationale lives in [design.md](design.md).
 
 ## Goals
@@ -70,7 +70,7 @@ Registered by `src/odata_extension.cpp` (see `ODataExtension::Load`):
 | `CALL odata_serve('http://0.0.0.0:8080', token := '…', base_path := '/odata')` | start HTTP server on the calling database instance (pinned address / token / base path) |
 | `CALL odata_stop()` | stop the server for this instance |
 | `SELECT * FROM odata_status()` | server/registry state |
-| `CALL odata_expose('customers')` | whitelist a table as an entity set (`'s1.customers'` / `'db1.s1.customers'` also accepted); returns one `(entity, table)` row |
+| `CALL odata_expose('customers', columns := ['id', 'name'])` | whitelist a table as an entity set and optionally restrict its public columns (`'s1.customers'` / `'db1.s1.customers'` also accepted); returns one `(entity, table)` row |
 | `CALL odata_expose_schema('main')` | whitelist every base table of a schema; `'db1.main'` exposes a schema of an attached catalog; returns a `(entity, table)` row per table |
 | `CALL odata_entity('customers', key := 'id')` | configure entity key columns |
 
@@ -95,6 +95,8 @@ Base path defaults to `/odata` (customizable via `base_path`):
 - `GET /odata/{entity}({key})` — single entity lookup
 
 Query options: `$select`, `$filter`, `$orderby`, `$top`, `$skip`, `$count`.
+Set `odata_page_size` before `odata_serve()` to enable server-driven pages;
+each full page includes a relative `@odata.nextLink` with the next `$skip`.
 
 Only `GET` is implemented (read-only v0.1); other methods return 405. Unknown
 `$…` system options return 400 instead of being silently ignored, and

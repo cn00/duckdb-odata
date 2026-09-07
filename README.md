@@ -13,15 +13,16 @@ Design document: [docs/design.md](docs/design.md)
 DuckDB ── odata extension ──► HTTP / OData v4 ──► BI / ERP / Power BI / Excel / REST clients
 ```
 
-## Quick start (v0.1)
+## Quick start (v0.2)
 
 ```sql
 INSTALL odata;
 LOAD odata;
 
 CREATE TABLE customers (id BIGINT, name VARCHAR, active BOOLEAN);
-CALL odata_expose('customers');
+CALL odata_expose('customers', columns := ['id', 'name', 'active']);
 CALL odata_entity('customers', key := 'id');
+SET odata_page_size = 500;
 CALL odata_serve('http://0.0.0.0:8080', token := 'secret');
 ```
 
@@ -85,16 +86,19 @@ Notes:
 - **Catalog-qualified exposure** (`'ms1.dbo'`, `'db.schema.table'`) works for
   attached databases; entity names stay collision-free across sources
   (`expose_schema('ms1.dbo')` → entity `ms1_dbo_<table>`).
-- **Safe by default**: nothing is exposed until you whitelist it, v0.1 serves
-  `GET` only, and `odata_serve()` turns on bearer-token auth automatically.
+- **Safe by default**: nothing is exposed until you whitelist it, only `GET`
+  is served, and `odata_serve()` turns on bearer-token auth automatically.
+- **Column policy**: `odata_expose(..., columns := [...])` restricts the
+  visible metadata and every query expression to the listed fields.
 - Tables without a primary key can still be exposed; add
   `CALL odata_entity('msxlsx', key := 'col')` to enable `(key)` lookups.
 
 ## Feature scope
 
 See [docs/architecture.md](docs/architecture.md), [docs/odata-support.md](docs/odata-support.md)
-and [docs/security.md](docs/security.md). Version 0.1 is **read-only GET**
-with the query options listed above; write support, `$expand`, pagination
+and [docs/security.md](docs/security.md). Version 0.2 is **read-only GET**
+with bearer authentication, column-level allow-lists, resource caps and
+optional server-driven pagination. Write support, `$expand`, opaque paging
 tokens and the Quack gateway executor are staged for later versions.
 
 ## Building

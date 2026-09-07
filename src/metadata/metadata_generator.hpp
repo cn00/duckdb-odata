@@ -30,6 +30,9 @@ struct EntityBinding {
 	std::string schema;  // optional: DuckDB schema (empty = current schema)
 	std::string catalog; // optional: DuckDB catalog (empty = current catalog)
 	std::vector<std::string> configured_keys; // from odata_entity
+	// Empty means every column is public. A non-empty list is an explicit
+	// column-level allow-list configured by odata_expose(..., columns := [...]).
+	std::vector<std::string> configured_columns;
 };
 
 // Parse a DuckDB-qualified identifier into binding fields.

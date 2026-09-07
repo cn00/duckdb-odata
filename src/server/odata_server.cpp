@@ -202,14 +202,67 @@ Route ParseRoute(const ODataServerState &state, const std::string &full_path) {
 // $expand/$apply/$search/$skiptoken are intentionally rejected with 400).
 bool IsSystemOption(const std::string &name) {
 	return name == "$select" || name == "$filter" || name == "$orderby" || name == "$top" || name == "$skip" ||
-	       name == "$count" || name == "$format";
+	       name == "$count" || name == "$format" || name == "$skiptoken";
+}
+
+bool FilterWithinDepth(const std::string &filter, int64_t max_depth) {
+	if (max_depth < 0) {
+		return true;
+	}
+	int64_t depth = 0;
+	bool quote = false;
+	for (size_t i = 0; i < filter.size(); i++) {
+		if (filter[i] == '\'' && (i + 1 >= filter.size() || filter[i + 1] != '\'')) {
+			quote = !quote;
+		} else if (!quote && filter[i] == '(') {
+			if (++depth > max_depth) {
+				return false;
+			}
+		} else if (!quote && filter[i] == ')' && depth > 0) {
+			depth--;
+		}
+	}
+	return true;
+}
+
+EdmEntity ApplyColumnPolicy(EdmEntity entity, const EntityBinding &binding) {
+	if (binding.configured_columns.empty()) {
+		return entity;
+	}
+	std::vector<EdmProperty> allowed;
+	for (auto &property : entity.properties) {
+		for (auto &column : binding.configured_columns) {
+			if (ToLower(property.name) == ToLower(column)) {
+				allowed.push_back(property);
+				break;
+			}
+	}
+	entity.properties = std::move(allowed);
+	entity.has_key = false;
+	for (auto &property : entity.properties) {
+		if (property.is_key) {
+			entity.has_key = true;
+			break;
+		}
+	}
+	return entity;
+}
+
+std::string NextLink(const HttpRequest &request, int64_t next_skip) {
+	std::string query = request.raw_query;
+	if (!query.empty()) {
+		query += "&";
+	}
+	return request.path + "?" + query + "$skip=" + std::to_string(next_skip);
 }
 
 } // namespace
 
 // start/stop implementations (socket backend)
 bool StartODataServer(ODataServerState &state, const std::string &address, const std::string &token,
-                      const std::string &base_path, std::string &error) {
+                      const std::string &base_path, int64_t max_top, int64_t max_filter_depth,
+                      int64_t max_response_bytes, int64_t query_timeout_ms, int64_t page_size,
+                      int64_t max_concurrent_queries, std::string &error) {
 	std::lock_guard<std::mutex> lock(state.mu);
 	if (state.running) {
 		error = "server is already running";
@@ -242,6 +295,13 @@ bool StartODataServer(ODataServerState &state, const std::string &address, const
 	state.port = port;
 	state.base_path = base_path.empty() ? path : base_path;
 	state.token = token;
+	state.max_top = max_top;
+	state.max_filter_depth = max_filter_depth;
+	state.max_response_bytes = max_response_bytes;
+	state.query_timeout_ms = query_timeout_ms;
+	state.page_size = page_size;
+	state.max_concurrent_queries = max_concurrent_queries;
+	state.active_queries = 0;
 	state.server = server;
 	state.running = true;
 	state.started_at = "now";
@@ -313,7 +373,7 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 		EdmModel model;
 		for (auto &e : bindings) {
 			try {
-				model.entities.push_back(gen.BuildEntity(e));
+				model.entities.push_back(ApplyColumnPolicy(gen.BuildEntity(e), e));
 			} catch (const ODataParseException &ex) {
 				// a bound table that no longer resolves: skip it in metadata
 				(void)ex;
@@ -342,9 +402,18 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 	if (!found) {
 		return MakeError(404, "NotFound", "entity set '" + route.entity + "' is not exposed");
 	}
+	if (state.max_concurrent_queries > 0 && state.active_queries.fetch_add(1) >= state.max_concurrent_queries) {
+		state.active_queries.fetch_sub(1);
+		return MakeError(503, "ServerBusy", "maximum concurrent OData queries exceeded");
+	}
+	struct QuerySlot {
+		ODataServerState &state;
+		~QuerySlot() { state.active_queries.fetch_sub(1); }
+	} query_slot {state};
 
 	// parse OData query options
 	ODataQuery query;
+	std::string filter_text;
 	query.entity_set = found->name;
 	for (auto &kv : request.query) {
 		std::string name = kv.first;
@@ -365,6 +434,10 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 			if (kv.first == "$select") {
 				query.select = ParseSelect(kv.second);
 			} else if (kv.first == "$filter") {
+				filter_text = kv.second;
+				if (!FilterWithinDepth(filter_text, state.max_filter_depth)) {
+					throw ODataParseException("$filter exceeds odata_max_filter_depth");
+				}
 				query.filter = ParseFilter(kv.second);
 			} else if (kv.first == "$orderby") {
 				query.order_by = ParseOrderBy(kv.second);
@@ -374,6 +447,8 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 				query.skip = ParseNonNegativeInt("skip", kv.second);
 			} else if (kv.first == "$count") {
 				query.count = ParseBooleanOption("count", kv.second);
+			} else if (kv.first == "$skiptoken") {
+				query.skip = ParseNonNegativeInt("skiptoken", kv.second);
 			}
 		}
 	} catch (const ODataParseException &e) {
@@ -383,14 +458,13 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 	MetadataGenerator gen(con);
 	EdmEntity entity;
 	try {
-		entity = gen.BuildEntity(*found);
+		entity = ApplyColumnPolicy(gen.BuildEntity(*found), *found);
 	} catch (const ODataParseException &e) {
 		return MakeError(404, "NotFound", e.what());
 	}
 
 	// server-side top cap (design doc section 21)
-	const int64_t odata_max_top = 10000;
-
+	const int64_t odata_max_top = state.max_top;
 	// key lookup
 	if (!route.keys.empty()) {
 		if (!entity.has_key) {
@@ -407,7 +481,7 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 			return MakeError(400, "InvalidQuery", e.what());
 		}
 		LocalDuckDBExecutor executor;
-		auto result = executor.Execute(con, cq);
+		auto result = executor.Execute(con, cq, state.query_timeout_ms);
 		if (result->HasError()) {
 			return MakeError(500, "InternalError", result->GetError());
 		}
@@ -423,8 +497,14 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 	// collection query
 	CompiledQuery cq;
 	CompiledQuery cq_count;
+	bool server_paged = false;
 	try {
 		SqlCompiler compiler;
+		int64_t effective_page_size = state.page_size;
+		if (effective_page_size > 0 && query.top < 0) {
+			query.top = effective_page_size;
+			server_paged = true;
+		}
 		cq = compiler.CompileCollection(query, entity, odata_max_top);
 		if (query.count) {
 			cq_count = compiler.CompileCount(query, entity);
@@ -435,28 +515,55 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 
 	LocalDuckDBExecutor executor;
 	std::string body = "{\"@odata.context\":\"" + EntityContextUri(state, entity.name, false) + "\"";
+	int64_t response_count = -1;
 
 	if (query.count) {
 		// design doc section 22: v0.1 may run a second query for the count
-		auto count_result = executor.Execute(con, cq_count);
+		auto count_result = executor.Execute(con, cq_count, state.query_timeout_ms);
 		if (count_result->HasError()) {
 			return MakeError(500, "InternalError", count_result->GetError());
 		}
 		auto count_chunk = count_result->Fetch();
 		if (count_chunk && count_chunk->size() > 0) {
 			auto v = count_chunk->GetValue(0, 0);
+			response_count = v.GetValue<int64_t>();
 			body += ",\"@odata.count\":" + ValueToJson(v);
 		} else {
+			response_count = 0;
 			body += ",\"@odata.count\":0";
 		}
 	}
 
-	auto result = executor.Execute(con, cq);
+	auto result = executor.Execute(con, cq, state.query_timeout_ms);
 	if (result->HasError()) {
 		return MakeError(500, "InternalError", result->GetError());
 	}
 	uint64_t rows = 0;
 	std::string rows_json = SerializeRows(*result, rows);
+	if (state.max_response_bytes >= 0 && static_cast<int64_t>(body.size() + rows_json.size() + 16) > state.max_response_bytes) {
+		return MakeError(413, "ResponseTooLarge", "response exceeds odata_max_response_bytes");
+	}
+	bool has_more = false;
+	if (server_paged && rows == static_cast<uint64_t>(query.top)) {
+		int64_t count = response_count;
+		if (count < 0) {
+			SqlCompiler compiler;
+			auto more_count = executor.Execute(con, compiler.CompileCount(query, entity), state.query_timeout_ms);
+			if (more_count->HasError()) {
+				return MakeError(500, "InternalError", more_count->GetError());
+			}
+			auto chunk = more_count->Fetch();
+			if (chunk && chunk->size() > 0) {
+				count = chunk->GetValue(0, 0).GetValue<int64_t>();
+			}
+		}
+		int64_t current_skip = query.skip < 0 ? 0 : query.skip;
+		has_more = count > current_skip + static_cast<int64_t>(rows);
+	}
+	if (has_more) {
+		int64_t current_skip = query.skip < 0 ? 0 : query.skip;
+		body += ",\"@odata.nextLink\":\"" + JsonEscape(NextLink(request, current_skip + static_cast<int64_t>(rows))) + "\"";
+	}
 	body += ",\"value\":[" + rows_json + "]}";
 	return MakeJson(200, body);
 }

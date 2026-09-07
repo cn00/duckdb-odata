@@ -1,4 +1,4 @@
-# duckdb-odata security model (v0.1)
+# duckdb-odata security model (v0.2)
 
 Security is layered in front of the parser and compiler so that no client
 input can reach SQL unvalidated (design doc §34-§40).
@@ -45,8 +45,12 @@ CALL odata_expose_schema('main');      -- whole schema, explicitly
 ```
 
 Every endpoint resolves tables against this whitelist; non-exposed names get
-`404`. Per-entity column lists (`columns := [...]`) are part of the design
-(§36) but not yet implemented.
+`404`. An entity can additionally expose only named columns; the policy is
+applied to metadata, `$select`, `$filter`, `$orderby` and key lookups:
+
+```sql
+CALL odata_expose('customers', columns := ['id', 'name']);
+```
 
 ## Read-only by construction
 
@@ -74,8 +78,10 @@ Every endpoint resolves tables against this whitelist; non-exposed names get
 | --- | --- | --- |
 | `odata_max_top` | 10000 | ✅ caps `$top` |
 | `odata_max_filter_depth` | 64 | parser uses recursion limits |
-| `odata_max_response_bytes` | 100 MiB | ✅ guardrail while buffering |
-| `odata_query_timeout_ms` | 0 | accepted, not yet enforced |
+| `odata_max_response_bytes` | 100 MiB | ✅ response overage → 413 |
+| `odata_query_timeout_ms` | 0 | ✅ interrupts the query at deadline |
+| `odata_page_size` | 0 (off) | ✅ server-driven pages and `@odata.nextLink` |
+| `odata_max_concurrent_queries` | 0 (off) | ✅ excess requests → 503 |
 
 Reading happens once when `odata_serve` is invoked, so set the variables
 before starting the server.

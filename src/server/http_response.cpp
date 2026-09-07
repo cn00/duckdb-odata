@@ -34,6 +34,8 @@ const char *HttpStatusPhrase(int status) {
 		return "Unsupported Media Type";
 	case 500:
 		return "Internal Server Error";
+	case 503:
+		return "Service Unavailable";
 	case 501:
 		return "Not Implemented";
 	default:

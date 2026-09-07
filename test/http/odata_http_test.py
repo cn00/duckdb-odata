@@ -175,6 +175,11 @@ INSERT INTO customers VALUES
 CALL odata_expose('customers');
 CALL odata_entity('customers', key := 'id');
 
+CREATE TABLE private_data (id BIGINT, name VARCHAR, secret VARCHAR);
+INSERT INTO private_data VALUES (1, 'Public name', 'do-not-serve');
+CALL odata_expose('private_data', columns := ['id', 'name']);
+CALL odata_entity('private_data', key := 'id');
+
 -- multi-schema: s1.customers is exposed as the "s1_customers" entity set
 CREATE SCHEMA s1;
 CREATE TABLE s1.customers (id BIGINT, name VARCHAR);
@@ -182,6 +187,7 @@ INSERT INTO s1.customers VALUES (10, 'SchemaAlice'), (11, 'SchemaBob');
 CALL odata_expose('s1.customers');
 CALL odata_entity('s1.customers', key := 'id');
 
+SET odata_page_size = 2;
 CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
 """
     proc = subprocess.Popen([DUCKDB, "-unsigned"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -202,8 +208,13 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
 
         s, b = get("/odata/customers", token="secret")
         doc = json.loads(b)
-        check("entity set has 3 rows", s == 200 and len(doc["value"]) == 3, b)
+        check("server-driven page has 2 rows", s == 200 and len(doc["value"]) == 2, b)
         check("keys in row", doc["value"][0]["id"] == 1 and doc["value"][0]["name"] == "Alice", b)
+        next_link = doc.get("@odata.nextLink", "")
+        check("server-driven page has nextLink", next_link.endswith("$skip=2"), b)
+        s, b = get(next_link, token="secret")
+        doc = json.loads(b)
+        check("nextLink resumes collection", s == 200 and [r["id"] for r in doc["value"]] == [3], b)
 
         s, b = get("/odata/customers?$filter=active%20eq%20true&$select=id,name&$orderby=id%20asc", token="secret")
         doc = json.loads(b)
@@ -212,7 +223,7 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
 
         s, b = get("/odata/customers?$count=true", token="secret")
         doc = json.loads(b)
-        check("$count", s == 200 and doc.get("@odata.count") == 3 and len(doc["value"]) == 3, b)
+        check("$count", s == 200 and doc.get("@odata.count") == 3 and len(doc["value"]) == 2, b)
 
         s, b = get("/odata/customers?$top=1&$skip=1", token="secret")
         doc = json.loads(b)
@@ -244,6 +255,14 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
 
         s, b = get("/odata/customers?$expand=customer", token="secret")
         check("unsupported option -> 400", s == 400, b)
+
+        s, b = get("/odata/private_data", token="secret")
+        doc = json.loads(b)
+        check("column allow-list hides secret", s == 200 and set(doc["value"][0]) == {"id", "name"}, b)
+        s, b = get("/odata/private_data?$select=secret", token="secret")
+        check("column allow-list rejects secret projection", s == 400, b)
+        s, b = get("/odata/private_data?$filter=secret%20eq%20%27do-not-serve%27", token="secret")
+        check("column allow-list rejects secret filter", s == 400, b)
 
         s, b = get("/odata/customers", token="wrong")
         check("bad token -> 401", s == 401, b)

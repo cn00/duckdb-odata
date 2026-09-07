@@ -1,6 +1,7 @@
 #include "odata_extension.hpp"
 
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/common/types/value.hpp"
 #include "duckdb/function/function_set.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/client_context.hpp"
@@ -50,6 +51,12 @@ struct ODataServeData : public TableFunctionData {
 	std::string token;     // honored only when token_provided
 	bool token_provided = false;
 	std::string base_path; // empty => "/odata"
+	int64_t max_top = 10000;
+	int64_t max_filter_depth = 64;
+	int64_t max_response_bytes = 104857600;
+	int64_t query_timeout_ms = 0;
+	int64_t page_size = 0;
+	int64_t max_concurrent_queries = 0;
 	shared_ptr<DatabaseInstance> db; // keeps the instance alive while serving
 };
 
@@ -69,6 +76,18 @@ unique_ptr<FunctionData> ServeBind(ClientContext &context, TableFunctionBindInpu
 	if (it != input.named_parameters.end()) {
 		result->base_path = it->second.ToString();
 	}
+	auto read_limit = [&context](const char *name, int64_t &out) {
+		Value value;
+		if (context.TryGetCurrentSetting(name, value) && !value.IsNull()) {
+			out = value.GetValue<int64_t>();
+		}
+	};
+	read_limit("odata_max_top", result->max_top);
+	read_limit("odata_max_filter_depth", result->max_filter_depth);
+	read_limit("odata_max_response_bytes", result->max_response_bytes);
+	read_limit("odata_query_timeout_ms", result->query_timeout_ms);
+	read_limit("odata_page_size", result->page_size);
+	read_limit("odata_max_concurrent_queries", result->max_concurrent_queries);
 	// quack_serve-style output: one row reporting the effective endpoint
 	return_types.push_back(LogicalType::VARCHAR);
 	names.emplace_back("listen_uri");
@@ -95,7 +114,9 @@ void ServeExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk 
 	}
 	auto state = duckdb_odata::ODataServerRegistry::Get().GetOrCreate(*serve.db);
 	std::string error;
-	if (!duckdb_odata::StartODataServer(*state, serve.address, token, serve.base_path, error)) {
+	if (!duckdb_odata::StartODataServer(*state, serve.address, token, serve.base_path, serve.max_top,
+	                                    serve.max_filter_depth, serve.max_response_bytes, serve.query_timeout_ms,
+	                                    serve.page_size, serve.max_concurrent_queries, error)) {
 		throw InvalidInputException("odata_serve failed: %s", error);
 	}
 	// bind data is const during execute; report the effective endpoint
@@ -134,6 +155,7 @@ struct ODataExposeData : public TableFunctionData {
 	std::string arg; // odata_expose: "t" / "s.t" / "db.s.t";
 	                 // odata_expose_schema: "s" / "db.s"
 	shared_ptr<DatabaseInstance> db;
+	std::vector<std::string> columns;
 };
 
 // Single-scalar SELECT helper (current_schema()/current_catalog()); used only
@@ -186,6 +208,12 @@ unique_ptr<FunctionData> ExposeBind(ClientContext &context, TableFunctionBindInp
 	if (!input.inputs.empty()) {
 		result->arg = input.inputs[0].ToString();
 	}
+	auto columns = input.named_parameters.find("columns");
+	if (columns != input.named_parameters.end()) {
+		for (auto &value : duckdb::ListValue::GetChildren(columns->second)) {
+			result->columns.push_back(value.ToString());
+		}
+	}
 	// shared shape for odata_expose and odata_expose_schema
 	return_types.push_back(LogicalType::VARCHAR);
 	names.emplace_back("entity");
@@ -210,6 +238,22 @@ void ExposeExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 	try {
 		binding = duckdb_odata::ParseQualifiedBinding(d.arg);
 		duckdb_odata::ResolveBindingTable(con, binding);
+		binding.configured_columns = d.columns;
+		if (!binding.configured_columns.empty()) {
+			auto entity = duckdb_odata::MetadataGenerator(con).BuildEntity(binding);
+			for (auto &column : binding.configured_columns) {
+				bool exists = false;
+				for (auto &property : entity.properties) {
+					if (StringUtil::Lower(property.name) == StringUtil::Lower(column)) {
+						exists = true;
+						break;
+					}
+				}
+				if (!exists) {
+					throw duckdb_odata::ODataParseException("column '" + column + "' does not exist on table '" + binding.table + "'");
+				}
+			}
+		}
 	} catch (const duckdb_odata::ODataParseException &e) {
 		throw InvalidInputException("odata_expose failed: %s", e.what());
 	}
@@ -428,6 +472,10 @@ void RegisterOptions(DatabaseInstance &db) {
 	                          Value::BIGINT(104857600));
 	config.AddExtensionOption("odata_query_timeout_ms", "Query timeout in ms (0 = disabled)", LogicalType::BIGINT,
 	                          Value::BIGINT(0));
+	config.AddExtensionOption("odata_page_size", "Default OData server-driven page size (0 = disabled)", LogicalType::BIGINT,
+	                          Value::BIGINT(0));
+	config.AddExtensionOption("odata_max_concurrent_queries", "Maximum concurrent OData queries (0 = disabled)", LogicalType::BIGINT,
+	                          Value::BIGINT(0));
 }
 
 void LoadInternal(ExtensionLoader &loader) {
@@ -450,6 +498,7 @@ void LoadInternal(ExtensionLoader &loader) {
 	loader.RegisterFunction(stop);
 
 	TableFunction expose("odata_expose", {LogicalType::VARCHAR}, ExposeExecute, ExposeBind, CommonInit);
+	expose.named_parameters["columns"] = LogicalType::LIST(LogicalType::VARCHAR);
 	loader.RegisterFunction(expose);
 
 	TableFunction expose_schema("odata_expose_schema", {LogicalType::VARCHAR}, ExposeSchemaExecute, ExposeBind,
@@ -475,7 +524,7 @@ std::string ODataExtension::Name() {
 }
 
 std::string ODataExtension::Version() const {
-	return "0.1.0";
+	return "0.2.0";
 }
 
 } // namespace duckdb

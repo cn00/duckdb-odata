@@ -12,15 +12,16 @@ OData EntitySet 对外提供，支持 `$select`、`$filter`、`$orderby`、`$top
 DuckDB ── odata extension ──► HTTP / OData v4 ──► BI / ERP / Power BI / Excel / REST 客户端
 ```
 
-## 快速开始（v0.1）
+## 快速开始（v0.2）
 
 ```sql
 INSTALL odata;
 LOAD odata;
 
 CREATE TABLE customers (id BIGINT, name VARCHAR, active BOOLEAN);
-CALL odata_expose('customers');
+CALL odata_expose('customers', columns := ['id', 'name', 'active']);
 CALL odata_entity('customers', key := 'id');
+SET odata_page_size = 500;
 CALL odata_serve('http://0.0.0.0:8080', token := 'secret');
 ```
 
@@ -81,8 +82,9 @@ CALL odata_serve();   -- 从返回行读取 listen_url / auth_token
 - **支持跨 catalog 暴露**（`'ms1.dbo'`、`'db.schema.table'`）：适用于
   ATTACH 的外部数据库；EntitySet 名在不同数据源之间不会冲突
   （`expose_schema('ms1.dbo')` → 实体 `ms1_dbo_<表名>`）。
-- **默认安全**：白名单之外什么都不暴露；v0.1 仅服务 `GET`；
+- **默认安全**：白名单之外什么都不暴露；仅服务 `GET`；
   `odata_serve()` 默认自动开启 bearer token 认证。
+- **列级策略**：`odata_expose(..., columns := [...])` 会限制元数据和全部查询表达式只能访问列出的字段。
 - 没有主键的表也可以暴露；执行
   `CALL odata_entity('msxlsx', key := 'col')` 即可启用 `(key)` 单实体查询。
 

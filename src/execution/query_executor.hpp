@@ -36,6 +36,10 @@ class LocalDuckDBExecutor : public QueryExecutor {
 public:
 	std::unique_ptr<duckdb::QueryResult> Execute(duckdb::Connection &con,
 	                                             const CompiledQuery &query) const override;
+	// Runs the query locally and interrupts the connection when the deadline
+	// expires. A timeout of zero disables the deadline.
+	std::unique_ptr<duckdb::QueryResult> Execute(duckdb::Connection &con, const CompiledQuery &query,
+	                                             int64_t timeout_ms) const;
 };
 
 } // namespace duckdb_odata
