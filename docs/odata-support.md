@@ -19,7 +19,7 @@ What a client can rely on in the current version, and what is staged.
 | `GET /odata/{entity}({key})` single entity | ✅ single-key lookups |
 | Compound keys | ⏳ v0.2 |
 | Navigation properties / `$expand` | ⏳ v0.3 |
-| CRUD (POST/PATCH/DELETE) | ⏳ v0.4 |
+| CRUD (POST/PATCH/DELETE) | ✅ opt-in with `read_only := false`; see [writes.md](writes.md) |
 
 ## Query options
 

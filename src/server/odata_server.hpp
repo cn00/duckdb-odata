@@ -46,6 +46,7 @@ public:
 	int port = 0;
 	std::string base_path = "/odata";
 	std::string token; // empty => no auth
+	bool read_only = true;
 	int64_t max_top = 10000;
 	int64_t max_filter_depth = 64;
 	int64_t max_response_bytes = 104857600;
@@ -87,7 +88,7 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 bool StartODataServer(ODataServerState &state, const std::string &address, const std::string &token,
                       const std::string &base_path, int64_t max_top, int64_t max_filter_depth,
                       int64_t max_response_bytes, int64_t query_timeout_ms, int64_t page_size,
-                      int64_t max_concurrent_queries, std::string &error);
+                      int64_t max_concurrent_queries, bool read_only, std::string &error);
 void StopODataServer(ODataServerState &state);
 
 } // namespace duckdb_odata

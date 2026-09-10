@@ -42,6 +42,9 @@ EXT = resolve_extension()
 HOST = os.environ.get("ODATA_TEST_HOST", "127.0.0.1")
 PORT = int(os.environ.get("ODATA_TEST_PORT", "18080"))
 BASE = f"http://{HOST}:{PORT}"
+# These integration tests talk to the DuckDB process started on this machine.
+# Do not forward local requests (or test credentials) to an inherited proxy.
+HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 failures = []
 
@@ -58,7 +61,7 @@ def get(path, token=None):
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with HTTP.open(req, timeout=10) as r:
             return r.status, r.read().decode()
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()
@@ -70,7 +73,7 @@ def http_get(base, path, token=None):
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with HTTP.open(req, timeout=10) as r:
             return r.status, r.read().decode()
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()
@@ -93,7 +96,12 @@ def wait_for_server(proc, timeout=30):
                 out = proc.stdout.read() if proc.stdout else ""
                 raise RuntimeError(f"duckdb exited early (rc={proc.returncode}). Output:\n{out}")
             time.sleep(0.2)
-    out = proc.stdout.read() if proc.stdout else ""
+    proc.terminate()
+    try:
+        out, _ = proc.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out, _ = proc.communicate()
     raise RuntimeError(f"timed out waiting for OData server. duckdb output:\n{out}")
 
 

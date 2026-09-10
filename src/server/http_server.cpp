@@ -5,8 +5,11 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <poll.h>
 
 #include <cstring>
+#include <algorithm>
+#include <chrono>
 #include <exception>
 #include <string>
 #include <vector>
@@ -16,7 +19,7 @@ namespace duckdb_odata {
 namespace {
 
 // Read until CRLFCRLF or EOF; returns false on error/timeout.
-bool ReadRequestHead(int fd, std::string &head) {
+bool ReadRequestHead(int fd, std::string &head, std::string &body) {
 	std::string buffer;
 	char chunk[4096];
 	while (true) {
@@ -27,7 +30,9 @@ bool ReadRequestHead(int fd, std::string &head) {
 		buffer.append(chunk, static_cast<size_t>(n));
 		auto pos = buffer.find("\r\n\r\n");
 		if (pos != std::string::npos) {
+			if (pos > (1 << 16)) return false;
 			head = buffer.substr(0, pos + 4);
+			body = buffer.substr(pos + 4);
 			return true;
 		}
 		if (buffer.size() > 1 << 16) {
@@ -124,19 +129,53 @@ void SocketHttpServer::AcceptLoop() {
 
 void SocketHttpServer::HandleConnection(int client_fd) {
 	HttpResponse response;
+	timeval timeout {10, 0};
+	setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+	setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+#ifdef SO_NOSIGPIPE
+	int no_sigpipe = 1;
+	setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
+#endif
 	try {
 		std::string head;
-		bool ok = ReadRequestHead(client_fd, head);
+		std::string body;
+		bool ok = ReadRequestHead(client_fd, head, body);
 		if (!ok) {
 			response.status = 400;
-			response.body = "400 Bad Request";
+			response.body = "{\"error\":{\"code\":\"InvalidRequest\",\"message\":\"invalid request header\"}}";
 		} else {
 			HttpRequest request;
 			if (!ParseHttpRequest(head, request)) {
 				response.status = 400;
-				response.body = "400 Bad Request";
+				response.body = "{\"error\":{\"code\":\"InvalidRequest\",\"message\":\"invalid request header\"}}";
 			} else {
-				response = handler(request);
+				// Bounded Content-Length framing. Chunked request bodies are not supported.
+				size_t length = 0;
+				bool valid = !request.HasHeader("Transfer-Encoding");
+				auto raw_length = request.GetHeader("Content-Length");
+				if (request.HasHeader("Content-Length") && raw_length.empty()) valid = false;
+				for (char c : raw_length) {
+					if (c < '0' || c > '9' || length > 1048576) { valid = false; break; }
+					length = length * 10 + (c - '0');
+				}
+				if (length > 1048576) {
+					response.status = 413;
+					response.body = "{\"error\":{\"code\":\"PayloadTooLarge\",\"message\":\"request body exceeds 1 MiB\"}}";
+				} else {
+					while (valid && body.size() < length) {
+						char buffer[4096];
+						auto n = read(client_fd, buffer, std::min(sizeof(buffer), length - body.size()));
+						if (n <= 0) { valid = false; break; }
+						body.append(buffer, static_cast<size_t>(n));
+					}
+					if (!valid) {
+						response.status = 400;
+						response.body = "{\"error\":{\"code\":\"InvalidRequest\",\"message\":\"invalid or unsupported body framing\"}}";
+					} else {
+						request.body = body.substr(0, length);
+						response = handler(request);
+					}
+				}
 			}
 		}
 	} catch (const std::exception &ex) {
@@ -144,26 +183,45 @@ void SocketHttpServer::HandleConnection(int client_fd) {
 		// an uncaught exception there would std::terminate the whole process
 		response.status = 500;
 		response.headers["Content-Type"] = "application/json";
-		response.body = "{\"error\":{\"code\":\"500\",\"message\":\"" + std::string(ex.what()) + "\"}}";
+		response.body = "{\"error\":{\"code\":\"500\",\"message\":\"" + JsonEscape(ex.what()) + "\"}}";
 	} catch (...) {
 		response.status = 500;
 		response.headers["Content-Type"] = "application/json";
 		response.body = "{\"error\":{\"code\":\"500\",\"message\":\"internal error\"}}";
 	}
 	if (!response.headers.count("Content-Type")) {
-		response.headers["Content-Type"] = "text/plain";
+		response.headers["Content-Type"] = response.status >= 400 ? "application/json" : "text/plain";
 	}
 	std::string wire = response.ToWire();
 	// best-effort write (ignore partial-write edge cases for v0.1)
 	const char *data = wire.data();
 	size_t remaining = wire.size();
 	while (remaining > 0) {
-		ssize_t n = write(client_fd, data, remaining);
+#ifdef MSG_NOSIGNAL
+		ssize_t n = send(client_fd, data, remaining, MSG_NOSIGNAL);
+#else
+		ssize_t n = send(client_fd, data, remaining, 0);
+#endif
 		if (n <= 0) {
 			break;
 		}
 		data += n;
 		remaining -= static_cast<size_t>(n);
+	}
+	if (response.status == 413) {
+		// Deliver the rejection before closing a socket with unread request data.
+		// Bounded draining avoids a TCP reset masking the 413 for uploading clients.
+		shutdown(client_fd, SHUT_WR);
+		auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		size_t drained = 0;
+		while (drained < 8 * 1048576 && std::chrono::steady_clock::now() < deadline) {
+			pollfd pending {client_fd, POLLIN, 0};
+			if (poll(&pending, 1, 100) <= 0) break;
+			char discard[8192];
+			auto n = recv(client_fd, discard, sizeof(discard), MSG_DONTWAIT);
+			if (n <= 0) break;
+			drained += static_cast<size_t>(n);
+		}
 	}
 	close(client_fd);
 }

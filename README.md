@@ -86,19 +86,26 @@ Notes:
 - **Catalog-qualified exposure** (`'ms1.dbo'`, `'db.schema.table'`) works for
   attached databases; entity names stay collision-free across sources
   (`expose_schema('ms1.dbo')` → entity `ms1_dbo_<table>`).
-- **Safe by default**: nothing is exposed until you whitelist it, only `GET`
+- **Safe by default**: nothing is exposed until you whitelist it, only `GET` by default
   is served, and `odata_serve()` turns on bearer-token auth automatically.
 - **Column policy**: `odata_expose(..., columns := [...])` restricts the
   visible metadata and every query expression to the listed fields.
 - Tables without a primary key can still be exposed; add
   `CALL odata_entity('msxlsx', key := 'col')` to enable `(key)` lookups.
 
+## Basic writes
+
+Set `read_only := false` in `odata_serve` to enable POST (201 + Location),
+PATCH and DELETE (204). The default remains read-only. Writes use Bearer auth,
+the existing entity/column allow-lists and per-request transactions. See
+[write API and examples](docs/writes.md) for input types, errors and limitations.
+
 ## Feature scope
 
 See [docs/architecture.md](docs/architecture.md), [docs/odata-support.md](docs/odata-support.md)
-and [docs/security.md](docs/security.md). Version 0.2 is **read-only GET**
+and [docs/security.md](docs/security.md). The server defaults to **read-only GET**
 with bearer authentication, column-level allow-lists, resource caps and
-optional server-driven pagination. Write support, `$expand`, opaque paging
+optional server-driven pagination; basic writes can be enabled explicitly. `$expand`, opaque paging
 tokens and the Quack gateway executor are staged for later versions.
 
 ## Building

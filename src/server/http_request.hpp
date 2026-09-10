@@ -1,7 +1,7 @@
 //===----------------------------------------------------------------------===//
 // odata / server / http request
 //
-// Minimal HTTP/1.1 request model (GET-only for v0.1).
+// HTTP/1.1 request model with a bounded, Content-Length-framed body.
 //===----------------------------------------------------------------------===//
 #pragma once
 
@@ -14,9 +14,10 @@
 namespace duckdb_odata {
 
 struct HttpRequest {
-	std::string method; // GET (others rejected before parsing)
+	std::string method; // GET, POST, PATCH, DELETE; method policy enforced by router
 	std::string path;   // URL-decoded path, no query string
 	std::string raw_query;
+	std::string body;
 	// decoded query pairs
 	std::vector<std::pair<std::string, std::string>> query;
 	std::map<std::string, std::string> headers; // lower-cased keys

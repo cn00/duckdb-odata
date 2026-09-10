@@ -82,19 +82,24 @@ CALL odata_serve();   -- 从返回行读取 listen_url / auth_token
 - **支持跨 catalog 暴露**（`'ms1.dbo'`、`'db.schema.table'`）：适用于
   ATTACH 的外部数据库；EntitySet 名在不同数据源之间不会冲突
   （`expose_schema('ms1.dbo')` → 实体 `ms1_dbo_<表名>`）。
-- **默认安全**：白名单之外什么都不暴露；仅服务 `GET`；
+- **默认安全**：白名单之外什么都不暴露；默认仅服务 `GET`；
   `odata_serve()` 默认自动开启 bearer token 认证。
 - **列级策略**：`odata_expose(..., columns := [...])` 会限制元数据和全部查询表达式只能访问列出的字段。
 - 没有主键的表也可以暴露；执行
   `CALL odata_entity('msxlsx', key := 'col')` 即可启用 `(key)` 单实体查询。
 
+## 基本写操作
+
+在 `odata_serve` 中设置 `read_only := false` 可开启 POST 新增（201 + Location）、
+PATCH 部分更新及 DELETE 删除（204）。默认仍为只读。写操作沿用 Bearer 认证、
+实体/列白名单，并在单请求事务内执行。用法、输入类型与限制见 [写入 API](docs/writes.md)。
+
 ## 功能范围
 
 详见 [docs/architecture.md](docs/architecture.md)、
 [docs/odata-support.md](docs/odata-support.md) 与
-[docs/security.md](docs/security.md)。v0.1 为**只读 GET**，支持上文列出的
-查询选项；写操作、`$expand`、分页 token 与 Quack gateway 执行器在后续版本
-实现。
+[docs/security.md](docs/security.md)。默认只读，支持上文列出的查询选项，
+可显式开启基本写操作；`$expand`、不透明分页 token 与 Quack gateway 执行器仍待实现。
 
 ## 构建
 

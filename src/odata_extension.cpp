@@ -50,6 +50,7 @@ struct ODataServeData : public TableFunctionData {
 	std::string address;   // empty => localhost on a free port
 	std::string token;     // honored only when token_provided
 	bool token_provided = false;
+	bool read_only = true;
 	std::string base_path; // empty => "/odata"
 	int64_t max_top = 10000;
 	int64_t max_filter_depth = 64;
@@ -64,6 +65,11 @@ unique_ptr<FunctionData> ServeBind(ClientContext &context, TableFunctionBindInpu
                                    vector<LogicalType> &return_types, vector<string> &names) {
 	auto result = make_uniq<ODataServeData>();
 	result->db = context.db;
+	auto mode = input.named_parameters.find("read_only");
+	if (mode != input.named_parameters.end()) {
+		if (mode->second.IsNull()) throw InvalidInputException("read_only cannot be NULL");
+		result->read_only = mode->second.GetValue<bool>();
+	}
 	if (!input.inputs.empty()) {
 		result->address = input.inputs[0].ToString();
 	}
@@ -116,7 +122,7 @@ void ServeExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk 
 	std::string error;
 	if (!duckdb_odata::StartODataServer(*state, serve.address, token, serve.base_path, serve.max_top,
 	                                    serve.max_filter_depth, serve.max_response_bytes, serve.query_timeout_ms,
-	                                    serve.page_size, serve.max_concurrent_queries, error)) {
+	                                    serve.page_size, serve.max_concurrent_queries, serve.read_only, error)) {
 		throw InvalidInputException("odata_serve failed: %s", error);
 	}
 	// bind data is const during execute; report the effective endpoint
@@ -485,9 +491,11 @@ void LoadInternal(ExtensionLoader &loader) {
 	// and single-address overloads; both accept token/base_path named params.
 	TableFunction serve0("odata_serve", {}, ServeExecute, ServeBind, CommonInit);
 	serve0.named_parameters["token"] = LogicalType::VARCHAR;
+	serve0.named_parameters["read_only"] = LogicalType::BOOLEAN;
 	serve0.named_parameters["base_path"] = LogicalType::VARCHAR;
 	TableFunction serve1("odata_serve", {LogicalType::VARCHAR}, ServeExecute, ServeBind, CommonInit);
 	serve1.named_parameters["token"] = LogicalType::VARCHAR;
+	serve1.named_parameters["read_only"] = LogicalType::BOOLEAN;
 	serve1.named_parameters["base_path"] = LogicalType::VARCHAR;
 	TableFunctionSet serve_set("odata_serve");
 	serve_set.AddFunction(serve0);

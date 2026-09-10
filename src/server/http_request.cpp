@@ -15,7 +15,9 @@ bool ParseHttpRequest(const std::string &head, HttpRequest &request) {
 	std::string request_line = head.substr(0, line_end);
 	std::istringstream line_ss(request_line);
 	std::string target;
-	if (!(line_ss >> request.method >> target)) {
+	std::string version, extra;
+	if (!(line_ss >> request.method >> target >> version) || (line_ss >> extra) ||
+	    (version != "HTTP/1.1" && version != "HTTP/1.0")) {
 		return false;
 	}
 	// parse target: /path?query
@@ -46,6 +48,7 @@ bool ParseHttpRequest(const std::string &head, HttpRequest &request) {
 			return false;
 		}
 		std::string name = header_line.substr(0, colon);
+		if (name.empty() || name.find_first_of(" \t") != std::string::npos) return false;
 		std::string value = header_line.substr(colon + 1);
 		// trim value
 		size_t start = 0;
@@ -56,7 +59,9 @@ bool ParseHttpRequest(const std::string &head, HttpRequest &request) {
 		while (end > start && (value[end - 1] == ' ' || value[end - 1] == '\t')) {
 			end--;
 		}
-		request.headers[ToLower(name)] = value.substr(start, end - start);
+		auto normalized = ToLower(name);
+		if (normalized == "content-length" && request.headers.count(normalized)) return false;
+		request.headers[normalized] = value.substr(start, end - start);
 	}
 	return true;
 }

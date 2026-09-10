@@ -30,10 +30,13 @@ set(EXTENSION_SOURCES
     src/server/http_server.cpp
     src/server/odata_server.cpp
     src/auth/auth.cpp
+    src/execution/write_executor.cpp
 )
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
+target_link_libraries(${EXTENSION_NAME} duckdb_yyjson)
+target_link_libraries(${LOADABLE_EXTENSION_NAME} duckdb_yyjson)
 
 install(
   TARGETS ${EXTENSION_NAME}

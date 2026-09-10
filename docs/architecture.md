@@ -98,7 +98,10 @@ Query options: `$select`, `$filter`, `$orderby`, `$top`, `$skip`, `$count`.
 Set `odata_page_size` before `odata_serve()` to enable server-driven pages;
 each full page includes a relative `@odata.nextLink` with the next `$skip`.
 
-Only `GET` is implemented (read-only v0.1); other methods return 405. Unknown
+GET is enabled by default; `read_only := false` enables POST/PATCH/DELETE via
+`src/execution/write_executor.*`. The HTTP layer reads bounded Content-Length
+bodies; yyjson parses JSON, and parameterized DML runs in per-request transactions.
+See [writes.md](writes.md). Unsupported methods return 405. Unknown
 `$…` system options return 400 instead of being silently ignored, and
 semantically invalid references (unknown property in `$filter`/`$select`/
 `$orderby`) are rejected before any SQL is built.

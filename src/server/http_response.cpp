@@ -48,7 +48,7 @@ std::string HttpResponse::ToWire(const std::string &http_version) const {
 	for (auto &kv : headers) {
 		wire += kv.first + ": " + kv.second + "\r\n";
 	}
-	if (headers.count("Content-Length") == 0 && headers.count("Transfer-Encoding") == 0) {
+	if (status != 204 && headers.count("Content-Length") == 0 && headers.count("Transfer-Encoding") == 0) {
 		wire += "Content-Length: " + std::to_string(body.size()) + "\r\n";
 	}
 	wire += "Connection: close\r\n";

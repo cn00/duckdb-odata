@@ -7,13 +7,13 @@ input can reach SQL unvalidated (design doc §34-§40).
 
 ```
 HTTP
- ├─ read-only enforcement (only GET)
  ├─ authentication   (optional bearer token)
+ ├─ method policy    (GET by default; writes opt-in)
  ├─ entity whitelist (expose nothing by default)
  ├─ $ query-option validation
- ├─ OData parse  -> AST
+ ├─ OData parse -> AST / write JSON validation
  ├─ semantic validation against the live catalog
- └─ SQL generation (quoted identifiers / typed literals only)
+ └─ SQL generation (quoted identifiers / typed literals; bound parameters for writes)
 ```
 
 ## Authentication
@@ -52,10 +52,12 @@ applied to metadata, `$select`, `$filter`, `$orderby` and key lookups:
 CALL odata_expose('customers', columns := ['id', 'name']);
 ```
 
-## Read-only by construction
+## Read-only default and opt-in writes
 
-- Only the HTTP `GET` method is routed (other methods → 405).
-- The SQL compiler can only emit `SELECT` statements.
+- By default only GET is routed. `odata_serve(..., read_only := false)` enables POST/PATCH/DELETE.
+- Writes use bound parameters, public column validation and per-request transactions.
+- The shared Bearer token authorizes all enabled operations on exposed entities.
+- Write request bodies are limited to 1 MiB; details and remaining limits are in [writes.md](writes.md).
 - A separate DuckDB `Connection` per request keeps requests isolated.
 
 ## Injection resistance

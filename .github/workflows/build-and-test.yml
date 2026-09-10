@@ -92,3 +92,6 @@ jobs:
           python3 test/http/odata_http_test.py \
             "$DUCKDB_CLI" \
             "${{ github.workspace }}/.dev/duckdb/build/extension/odata/odata.duckdb_extension"
+          python3 test/http/odata_write_test.py \
+            "$DUCKDB_CLI" \
+            "${{ github.workspace }}/.dev/duckdb/build/extension/odata/odata.duckdb_extension"

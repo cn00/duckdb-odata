@@ -4,6 +4,7 @@
 #include "common/string_util.hpp"
 #include "compiler/sql_compiler.hpp"
 #include "execution/query_executor.hpp"
+#include "execution/write_executor.hpp"
 #include "execution/result_serializer.hpp"
 #include "metadata/metadata_generator.hpp"
 #include "parser/odata_parser.hpp"
@@ -120,6 +121,7 @@ struct Route {
 	bool service_doc = false;
 	bool metadata = false;
 	bool health = false;
+	bool invalid_key = false;
 	std::string entity;
 	std::vector<std::string> keys; // populated for entity(key)
 	std::string rest;              // remaining path (future: navigation)
@@ -176,15 +178,27 @@ Route ParseRoute(const ODataServerState &state, const std::string &full_path) {
 	}
 	if (remaining[i] == '(') {
 		// find matching close paren
-		size_t close = remaining.find(')', i);
+		size_t close = std::string::npos;
+		bool quoted = false;
+		for (size_t j = i + 1; j < remaining.size(); j++) {
+			if (remaining[j] == '\'') {
+				if (quoted && j + 1 < remaining.size() && remaining[j + 1] == '\'') j++;
+				else quoted = !quoted;
+			} else if (!quoted && remaining[j] == ')') {
+				close = j;
+				break;
+			}
+		}
 		if (close == std::string::npos) {
+			route.invalid_key = true;
 			return route;
 		}
 		std::string key_part = remaining.substr(i + 1, close - i - 1);
 		if (!key_part.empty()) {
-			route.keys.push_back(UrlDecode(Trim(key_part)));
+			route.keys.push_back(Trim(key_part));
 		}
 		route.rest = remaining.substr(close + 1);
+		route.invalid_key = key_part.empty() || !route.rest.empty();
 		return route;
 	}
 	// '/key' style: treat as key too
@@ -192,7 +206,7 @@ Route ParseRoute(const ODataServerState &state, const std::string &full_path) {
 	if (!route.rest.empty()) {
 		route.rest = route.rest.substr(1); // strip '/'
 		if (!route.rest.empty()) {
-			route.keys.push_back(UrlDecode(route.rest));
+			route.keys.push_back(route.rest);
 		}
 	}
 	return route;
@@ -236,6 +250,7 @@ EdmEntity ApplyColumnPolicy(EdmEntity entity, const EntityBinding &binding) {
 				allowed.push_back(property);
 				break;
 			}
+		}
 	}
 	entity.properties = std::move(allowed);
 	entity.has_key = false;
@@ -262,7 +277,7 @@ std::string NextLink(const HttpRequest &request, int64_t next_skip) {
 bool StartODataServer(ODataServerState &state, const std::string &address, const std::string &token,
                       const std::string &base_path, int64_t max_top, int64_t max_filter_depth,
                       int64_t max_response_bytes, int64_t query_timeout_ms, int64_t page_size,
-                      int64_t max_concurrent_queries, std::string &error) {
+                      int64_t max_concurrent_queries, bool read_only, std::string &error) {
 	std::lock_guard<std::mutex> lock(state.mu);
 	if (state.running) {
 		error = "server is already running";
@@ -295,6 +310,7 @@ bool StartODataServer(ODataServerState &state, const std::string &address, const
 	state.port = port;
 	state.base_path = base_path.empty() ? path : base_path;
 	state.token = token;
+	state.read_only = read_only;
 	state.max_top = max_top;
 	state.max_filter_depth = max_filter_depth;
 	state.max_response_bytes = max_response_bytes;
@@ -318,18 +334,21 @@ void StopODataServer(ODataServerState &state) {
 }
 
 HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &request) {
-	// method restriction: read-only GET in v0.1
-	if (request.method != "GET") {
-		return MakeError(405, "MethodNotAllowed", "only GET is supported");
-	}
+	const bool writing = request.method == "POST" || request.method == "PATCH" || request.method == "DELETE";
 	// auth
 	{
 		std::lock_guard<std::mutex> lock(state.mu);
 		if (!state.token.empty() && !CheckBearerToken(request.GetHeader("Authorization"), state.token)) {
 			return MakeError(401, "Unauthorized", "missing or invalid bearer token");
 		}
+		if (request.method != "GET" && (!writing || state.read_only))
+			return MakeError(405, "MethodNotAllowed", "write method disabled or unsupported");
 	}
 	auto route = ParseRoute(state, request.path);
+	if (writing && (route.health || route.service_doc || route.metadata || route.entity.empty()))
+		return MakeError(405, "MethodNotAllowed", "writes require an entity resource");
+	if (writing && route.invalid_key)
+		return MakeError(400, "InvalidKey", "invalid key route");
 	if (route.health) {
 		return MakeJson(200, "{\"status\":\"ok\"}");
 	}
@@ -402,7 +421,8 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 	if (!found) {
 		return MakeError(404, "NotFound", "entity set '" + route.entity + "' is not exposed");
 	}
-	if (state.max_concurrent_queries > 0 && state.active_queries.fetch_add(1) >= state.max_concurrent_queries) {
+	auto active = state.active_queries.fetch_add(1);
+	if (state.max_concurrent_queries > 0 && active >= state.max_concurrent_queries) {
 		state.active_queries.fetch_sub(1);
 		return MakeError(503, "ServerBusy", "maximum concurrent OData queries exceeded");
 	}
@@ -464,6 +484,7 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 	}
 
 	// server-side top cap (design doc section 21)
+	if (writing) return ExecuteWrite(con, request, entity, route.keys, state.base_path);
 	const int64_t odata_max_top = state.max_top;
 	// key lookup
 	if (!route.keys.empty()) {

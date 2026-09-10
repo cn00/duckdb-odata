@@ -20,6 +20,7 @@ build: configure
 
 test-http: build
 	python3 test/http/odata_http_test.py
+	python3 test/http/odata_write_test.py
 
 clean:
 	rm -rf $(BUILD_DIR)

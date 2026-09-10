@@ -38,6 +38,12 @@ std::string KeyLiteralSql(const EdmProperty &prop, const std::string &raw_value)
 	std::string value = raw_value;
 	if (value.size() >= 2 && value.front() == '\'' && value.back() == '\'') {
 		value = value.substr(1, value.size() - 2);
+		std::string decoded;
+		for (size_t i = 0; i < value.size(); i++) {
+			decoded += value[i];
+			if (value[i] == '\'' && i + 1 < value.size() && value[i + 1] == '\'') i++;
+		}
+		value = std::move(decoded);
 	}
 	if (prop.edm_type == EdmType::STRING || prop.edm_type == EdmType::GUID || prop.edm_type == EdmType::BINARY) {
 		return QuoteStringLiteral(value);
