@@ -88,14 +88,14 @@ jobs:
       - name: Run HTTP end-to-end tests
         if: matrix.run_e2e
         run: |
-          DUCKDB_CLI="$(find "${{ github.workspace }}/cli" -maxdepth 1 -type f -name 'duckdb*' -perm -u+x | head -1)"
+          DUCKDB_CLI="./cli/duckdb"
           test -n "$DUCKDB_CLI"
           python3 test/http/odata_http_test.py \
             "$DUCKDB_CLI" \
-            "${{ github.workspace }}/.dev/duckdb/build/extension/odata/odata.duckdb_extension"
+            "${PWD}/.dev/duckdb/build/extension/odata/odata.duckdb_extension"
           python3 test/http/odata_write_test.py \
             "$DUCKDB_CLI" \
-            "${{ github.workspace }}/.dev/duckdb/build/extension/odata/odata.duckdb_extension"
+            "${PWD}/.dev/duckdb/build/extension/odata/odata.duckdb_extension"
 
   # Publish a GitHub Release from a version tag (e.g. v0.1.0). Waits for the
   # full build/test matrix, then renames every uploaded artifact to
