@@ -160,4 +160,7 @@ The extension supports the pinned DuckDB v2.0.0 API and retains v1.5.5
 source compatibility. CI builds only the stable version configured in the
 official distribution pipeline. Table-function registration adapts to v2.0's identifier-based
 column names and typed keyword options without changing the SQL interface.
+On v2.0, table-function outputs size their child vectors with
+`SetChildCardinality` before writing cells through `Vector::SetValue`, avoiding
+the deprecated chunk-level setters while keeping column cardinalities aligned.
 Always load a binary built for the exact DuckDB version used by the CLI.

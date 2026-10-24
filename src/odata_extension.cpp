@@ -49,6 +49,14 @@ void AddNamedParameters(TableFunction &function,
 #endif
 }
 
+void SetOutputCardinality(DataChunk &output, idx_t count) {
+#if __has_include("duckdb/common/identifier.hpp")
+	output.SetChildCardinality(count);
+#else
+	output.SetCardinality(count);
+#endif
+}
+
 enum class ODataActionKind { STOP, ENTITY };
 
 struct ODataActionData : public TableFunctionData {
@@ -150,10 +158,10 @@ void ServeExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk 
 	}
 	// bind data is const during execute; report the effective endpoint
 	// straight from the registry state (StartODataServer filled it in).
-	output.SetCardinality(1);
-	output.SetValue(0, 0, Value(state->listen_uri));
-	output.SetValue(1, 0, Value(state->listen_url));
-	output.SetValue(2, 0, Value(state->token));
+	SetOutputCardinality(output, 1);
+	output.data[0].SetValue(0, Value(state->listen_uri));
+	output.data[1].SetValue(0, Value(state->listen_url));
+	output.data[2].SetValue(0, Value(state->token));
 }
 
 unique_ptr<FunctionData> CommonBind(ClientContext &context, ODataActionKind kind, TableFunctionBindInput &input,
@@ -309,9 +317,9 @@ void ExposeExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 	}
 	std::string current_schema = ScalarQueryResult(con, "SELECT current_schema()");
 	std::string current_catalog = ScalarQueryResult(con, "SELECT current_catalog()");
-	output.SetCardinality(1);
-	output.SetValue(0, 0, Value(binding.name));
-	output.SetValue(1, 0, Value(BindingTableRef(binding, current_schema, current_catalog)));
+	SetOutputCardinality(output, 1);
+	output.data[0].SetValue(0, Value(binding.name));
+	output.data[1].SetValue(0, Value(BindingTableRef(binding, current_schema, current_catalog)));
 }
 
 void ExposeSchemaExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
@@ -377,10 +385,10 @@ void ExposeSchemaExecute(ClientContext &context, TableFunctionInput &data_p, Dat
 		}
 		exposed.emplace_back(binding.name, BindingTableRef(binding, current_schema, current_catalog));
 	}
-	output.SetCardinality(exposed.size());
+	SetOutputCardinality(output, exposed.size());
 	for (idx_t i = 0; i < exposed.size(); i++) {
-		output.SetValue(0, i, Value(exposed[i].first));
-		output.SetValue(1, i, Value(exposed[i].second));
+		output.data[0].SetValue(i, Value(exposed[i].first));
+		output.data[1].SetValue(i, Value(exposed[i].second));
 	}
 }
 
@@ -452,7 +460,7 @@ void ActionExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 		break;
 	}
 	}
-	output.SetCardinality(0);
+	SetOutputCardinality(output, 0);
 }
 
 // ---- odata_status() : real table function returning a single row ----------
@@ -491,12 +499,12 @@ void StatusExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 	bool token_required = state ? !state->token.empty() : false;
 	idx_t entity_count = state ? state->bindings.size() : 0;
 
-	output.SetCardinality(1);
-	output.SetValue(0, 0, Value::BOOLEAN(running));
-	output.SetValue(1, 0, Value(address));
-	output.SetValue(2, 0, Value(base_path));
-	output.SetValue(3, 0, Value::BOOLEAN(token_required));
-	output.SetValue(4, 0, Value::BIGINT((int64_t)entity_count));
+	SetOutputCardinality(output, 1);
+	output.data[0].SetValue(0, Value::BOOLEAN(running));
+	output.data[1].SetValue(0, Value(address));
+	output.data[2].SetValue(0, Value(base_path));
+	output.data[3].SetValue(0, Value::BOOLEAN(token_required));
+	output.data[4].SetValue(0, Value::BIGINT((int64_t)entity_count));
 }
 
 void RegisterOptions(DatabaseInstance &db) {

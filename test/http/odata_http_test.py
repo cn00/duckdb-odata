@@ -357,6 +357,43 @@ CALL odata_stop();
     check("expose rows exit code", proc.returncode == 0, str(proc.returncode))
 
 
+def check_table_function_cardinality():
+    sql = f"""
+LOAD '{EXT}';
+SELECT count(*) FROM odata_status();
+CREATE SCHEMA cardinality;
+SELECT count(*) FROM odata_expose_schema('cardinality');
+CREATE TABLE cardinality.a (id BIGINT);
+CREATE TABLE cardinality.b (id BIGINT);
+CREATE TABLE cardinality.c (id BIGINT);
+SELECT entity, "table" FROM odata_expose_schema('cardinality') ORDER BY entity;
+CALL odata_entity('cardinality.a', key := 'id');
+CALL odata_stop();
+SELECT running, exposed_entities FROM odata_status();
+"""
+    proc = subprocess.run(
+        [DUCKDB, "-unsigned", "-csv", "-noheader", "-bail"],
+        input=sql,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    check("table-function cardinality query succeeds", proc.returncode == 0, proc.stderr)
+    check(
+        "table functions preserve empty, single and multiple rows",
+        proc.stdout.splitlines()
+        == [
+            "1",
+            "0",
+            "cardinality_a,cardinality.a",
+            "cardinality_b,cardinality.b",
+            "cardinality_c,cardinality.c",
+            "false,3",
+        ],
+        proc.stdout,
+    )
+
+
 def run_additional_checks():
     # Phase 2: zero-argument odata_serve() (free port + auto-generated token).
     try:
@@ -371,6 +408,8 @@ def run_additional_checks():
     except RuntimeError as e:
         failures.append("expose rows")
         print(f"[FAIL] expose rows -- {e}")
+
+    check_table_function_cardinality()
 
     if failures:
         print(f"\n{len(failures)} FAILURES")
