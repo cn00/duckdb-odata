@@ -122,6 +122,16 @@ make test-http
 
 See [docs/architecture.md](docs/architecture.md#building) for details.
 
+Native CI/Release builds retain the official `EXTENSION_STATIC_BUILD=1`
+default: they statically link DuckDB into the loadable extension for portability,
+so the binary can be tens of MB. For local Linux/macOS development,
+`make EXTENSION_STATIC_BUILD=0` produces a smaller binary that resolves DuckDB
+symbols from the host. It requires a host exporting all needed C++ symbols;
+even a matching official CLI may not export them, and `RTLD_LOCAL` embedding
+can also prevent loading. The pinned DuckDB version forces static linking on
+Windows. See the [linking details](docs/architecture.md#building) before choosing
+a local dynamic build.
+
 ## Releasing
 
 Push a version tag to run the official `duckdb-stable-build` distribution

@@ -114,6 +114,14 @@ make test-http
 
 详情见 [docs/architecture.md](docs/architecture.md#building)。
 
+原生平台 CI/Release 保留官方默认的 `EXTENSION_STATIC_BUILD=1`：
+将 DuckDB 静态链接进可加载扩展以保证可移植性，因此二进制可能达到数十 MB。
+本地 Linux/macOS 开发可使用 `make EXTENSION_STATIC_BUILD=0` 生成较小的产物，
+但需要宿主导出全部所需的 DuckDB C++ 符号；即使版本匹配，官方 CLI 也不一定
+提供这些符号，使用 `RTLD_LOCAL` 的嵌入场景也可能加载失败。
+当前锁定的 DuckDB 版本在 Windows 上强制静态链接。
+选择本地动态构建前请参阅[链接说明](docs/architecture.md#building)。
+
 ## 发布 Release
 
 推送版本 tag 即可触发官方 `duckdb-stable-build` 分发流水线，

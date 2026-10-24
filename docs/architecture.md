@@ -159,6 +159,23 @@ CI also runs `make format-check` and `make tidy-check` with DuckDB's shared
 rules. The empty root `vcpkg.json` is retained for the official distribution
 toolchain, even though OData has no additional vcpkg dependencies.
 
+Native CI and Release builds retain the template's `EXTENSION_STATIC_BUILD=1`
+default. This statically links DuckDB into each loadable extension, increasing
+binary size but avoiding reliance on host-exported C++ symbols. CI artifacts
+also contain a separate `test-support` archive; its size is not the extension's
+size.
+
+For local Linux/macOS development, use `make EXTENSION_STATIC_BUILD=0`
+(or `-DEXTENSION_STATIC_BUILD=0` with direct CMake). Dynamic loadables can be
+hundreds of KB, but require the host to export every needed DuckDB symbol.
+Matching the DuckDB version alone does not guarantee this: loading a local
+dynamic build in the official Linux v2.0.0 CLI failed on missing
+`duckdb::SimpleFunction` RTTI; a build without RTTI still failed on
+`duckdb::TableFunctionData::Copy`. Hosts using `RTLD_LOCAL` may also be
+incompatible. The pinned DuckDB source forces static loadables on Windows;
+merely setting the Make/CMake option to zero does not enable Windows dynamic
+linking. WASM uses the official side-module build path, unchanged.
+
 The extension supports the pinned DuckDB v2.0.0 API and retains v1.5.5
 source compatibility. CI builds only the stable version configured in the
 official distribution pipeline. Table-function registration adapts to v2.0's identifier-based
