@@ -40,8 +40,8 @@ std::string Base64Encode(const char *data, size_t len) {
 	out.reserve(((len + 2) / 3) * 4);
 	size_t i = 0;
 	while (i + 3 <= len) {
-		unsigned n = (static_cast<unsigned char>(data[i]) << 16) |
-		             (static_cast<unsigned char>(data[i + 1]) << 8) | static_cast<unsigned char>(data[i + 2]);
+		unsigned n = (static_cast<unsigned char>(data[i]) << 16) | (static_cast<unsigned char>(data[i + 1]) << 8) |
+		             static_cast<unsigned char>(data[i + 2]);
 		out += tbl[(n >> 18) & 63];
 		out += tbl[(n >> 12) & 63];
 		out += tbl[(n >> 6) & 63];
@@ -126,7 +126,7 @@ std::string SerializeRows(duckdb::QueryResult &result, uint64_t &rows_out) {
 				if (c > 0) {
 					body += ",";
 				}
-				body += "\"" + JsonEscape(result.names[c]) + "\":";
+				body += "\"" + JsonEscape(static_cast<const std::string &>(result.ColumnName(c))) + "\":";
 				Value v = chunk->GetValue(c, r);
 				body += ValueToJson(v);
 			}
@@ -147,7 +147,7 @@ bool SerializeFirstRowMembers(duckdb::QueryResult &result, std::string &out) {
 		if (c > 0) {
 			out += ",";
 		}
-		out += "\"" + JsonEscape(result.names[c]) + "\":";
+		out += "\"" + JsonEscape(static_cast<const std::string &>(result.ColumnName(c))) + "\":";
 		Value v = chunk->GetValue(c, r);
 		out += ValueToJson(v);
 	}

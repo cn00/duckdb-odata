@@ -6,7 +6,7 @@
 OData EntitySet 对外提供，支持 `$select`、`$filter`、`$orderby`、`$top`、
 `$skip` 与 `$count`，并根据实时 DuckDB catalog 自动生成 `$metadata`（EDMX）。
 
-设计文档：[docs/design.md](docs/design.md)
+架构说明：[docs/architecture.md](docs/architecture.md)
 
 ```
 DuckDB ── odata extension ──► HTTP / OData v4 ──► BI / ERP / Power BI / Excel / REST 客户端
@@ -103,19 +103,30 @@ PATCH 部分更新及 DELETE 删除（204）。默认仍为只读。写操作沿
 
 ## 构建
 
-本地开发流程见 [docs/architecture.md](docs/architecture.md#building)。
+先初始化官方 DuckDB 扩展模板所需的 submodule，再使用标准 Makefile：
+
+```bash
+git submodule update --init --recursive
+make
+make test
+make test-http
+```
+
+详情见 [docs/architecture.md](docs/architecture.md#building)。
 
 ## 发布 Release
 
-打 tag 即可触发全矩阵构建并把扩展作为 GitHub Release assets 发布：
+推送版本 tag 即可触发官方 `duckdb-stable-build` 分发流水线，
+并将其构建产物作为 GitHub Release assets 发布：
 
 ```bash
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-CI 会把每个受支持的 DuckDB 版本 / ABI 的产物
-`odata-<duckdb版本>-<platform>.duckdb_extension`（外加 `sha256sums.txt`）
-附加到对应 release。
+稳定版构建成功后，Release 任务会发布
+`odata-<duckdb版本>-<platform>.duckdb_extension`（WebAssembly 使用
+`.duckdb_extension.wasm` 后缀）及 `sha256sums.txt`。
+DuckDB 版本和平台由官方分发流水线决定，不再通过独立矩阵重复构建历史版本。
 
 ## 许可证
 

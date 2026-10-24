@@ -51,15 +51,15 @@ public:
 	int64_t max_filter_depth = 64;
 	int64_t max_response_bytes = 104857600;
 	int64_t query_timeout_ms = 0;
-	int64_t page_size = 0; // 0 disables server-driven paging
+	int64_t page_size = 0;              // 0 disables server-driven paging
 	int64_t max_concurrent_queries = 0; // 0 disables the limit
 	std::atomic<int64_t> active_queries {0};
 	bool running = false;
 	std::string started_at;
 	std::string started_address;
 	// Effective endpoint once bound (address may be empty/"localhost:0").
-	std::string listen_uri;  // e.g. "odata:localhost" (quack-style)
-	std::string listen_url;  // e.g. "http://localhost:34567"
+	std::string listen_uri; // e.g. "odata:localhost" (quack-style)
+	std::string listen_url; // e.g. "http://localhost:34567"
 	std::shared_ptr<HttpServer> server;
 };
 

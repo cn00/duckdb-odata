@@ -1,18 +1,17 @@
 cmake_minimum_required(VERSION 3.5)
 
-# Set extension name here
 set(TARGET_NAME odata)
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
-cmake_host_system_information(RESULT CORE_COUNT QUERY NUMBER_OF_LOGICAL_CORES)
-set(CMAKE_BUILD_PARALLEL_LEVEL ${CORE_COUNT} CACHE STRING "Number of parallel build jobs")
-
 project(${TARGET_NAME})
 
-# DuckDB's own build pins CMAKE_CXX_STANDARD=11 (see duckdb root CMakeLists).
-# Extensions must stay compatible with that standard, so we do not bump it.
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
+set(CMAKE_CXX_STANDARD
+    "17"
+    CACHE STRING "C++ standard to enforce")
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+include_directories(src)
 
 set(EXTENSION_SOURCES
     src/odata_extension.cpp
@@ -30,11 +29,11 @@ set(EXTENSION_SOURCES
     src/server/http_server.cpp
     src/server/odata_server.cpp
     src/auth/auth.cpp
-    src/execution/write_executor.cpp
-)
+    src/execution/write_executor.cpp)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
+
 target_link_libraries(${EXTENSION_NAME} duckdb_yyjson)
 target_link_libraries(${LOADABLE_EXTENSION_NAME} duckdb_yyjson)
 

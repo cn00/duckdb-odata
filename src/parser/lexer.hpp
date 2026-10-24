@@ -46,7 +46,7 @@ enum class TokenType {
 
 struct Token {
 	TokenType type;
-	std::string text;   // raw lexeme (decoded)
+	std::string text;       // raw lexeme (decoded)
 	int64_t int_value = 0;  // for INTEGER
 	double float_value = 0; // for FLOAT
 	int line = 1;

@@ -25,10 +25,10 @@ namespace duckdb_odata {
 // DuckDB table (optionally catalog/schema qualified) + optional configured
 // key columns.
 struct EntityBinding {
-	std::string name;    // public entity set name (defaults to the table name)
-	std::string table;   // DuckDB table name
-	std::string schema;  // optional: DuckDB schema (empty = current schema)
-	std::string catalog; // optional: DuckDB catalog (empty = current catalog)
+	std::string name;                         // public entity set name (defaults to the table name)
+	std::string table;                        // DuckDB table name
+	std::string schema;                       // optional: DuckDB schema (empty = current schema)
+	std::string catalog;                      // optional: DuckDB catalog (empty = current catalog)
 	std::vector<std::string> configured_keys; // from odata_entity
 	// Empty means every column is public. A non-empty list is an explicit
 	// column-level allow-list configured by odata_expose(..., columns := [...]).

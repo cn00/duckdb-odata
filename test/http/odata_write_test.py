@@ -14,8 +14,9 @@ def server(read_only=True):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
-    proc = subprocess.Popen([DUCKDB, "-unsigned"], stdin=subprocess.PIPE,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen(
+        [DUCKDB, "-unsigned"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
+    )
     sql = f"""
 LOAD '{EXT}';
 CREATE SEQUENCE ids;
@@ -42,12 +43,12 @@ CALL odata_serve('http://127.0.0.1:{port}', token := 'secret', read_only := {str
         deadline = time.monotonic() + 20
         while True:
             try:
-                with socket.create_connection(("127.0.0.1", port), timeout=.2):
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
                     break
             except OSError:
                 if proc.poll() is not None or time.monotonic() > deadline:
                     raise RuntimeError("server did not start")
-                time.sleep(.1)
+                time.sleep(0.1)
         yield port
     finally:
         if proc.poll() is None:
@@ -63,7 +64,9 @@ CALL odata_serve('http://127.0.0.1:{port}', token := 'secret', read_only := {str
             print(errors)
 
 
-def request(port, method, path, data=None, token="secret", content_type="application/json", raw=None, extra_headers=None):
+def request(
+    port, method, path, data=None, token="secret", content_type="application/json", raw=None, extra_headers=None
+):
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
     body = raw if raw is not None else (json.dumps(data).encode() if data is not None else None)
     headers = {"Content-Type": content_type}
@@ -128,11 +131,15 @@ def main():
         # Fragmented payload exercises body reads beyond the request-head packet.
         body = b'{"name":"fragmented"}'
         with socket.create_connection(("127.0.0.1", port)) as sock:
-            sock.sendall(("POST /odata/items HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer secret\r\n"
-                          "Content-Type: application/json\r\nContent-Length: " + str(len(body)) + "\r\n\r\n").encode())
-            time.sleep(.05)
+            sock.sendall(
+                (
+                    "POST /odata/items HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer secret\r\n"
+                    "Content-Type: application/json\r\nContent-Length: " + str(len(body)) + "\r\n\r\n"
+                ).encode()
+            )
+            time.sleep(0.05)
             sock.sendall(body[:5])
-            time.sleep(.05)
+            time.sleep(0.05)
             sock.sendall(body[5:])
             response = http.client.HTTPResponse(sock)
             response.begin()

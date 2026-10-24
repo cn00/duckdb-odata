@@ -212,7 +212,7 @@ std::unique_ptr<Expr> ParseFilter(const std::string &filter) {
 
 std::vector<std::string> ParseSelect(const std::string &select) {
 	std::vector<std::string> result;
-	auto parts = select.empty() ? std::vector<std::string>() : std::vector<std::string>{""};
+	auto parts = select.empty() ? std::vector<std::string>() : std::vector<std::string> {""};
 	if (!select.empty()) {
 		parts.clear();
 		size_t start = 0;

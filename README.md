@@ -7,7 +7,7 @@ OData EntitySet with `$select`, `$filter`, `$orderby`, `$top`, `$skip` and
 `$count`, plus an auto-generated `$metadata` (EDMX) from the live DuckDB
 catalog.
 
-Design document: [docs/design.md](docs/design.md)
+Architecture: [docs/architecture.md](docs/architecture.md)
 
 ```
 DuckDB ── odata extension ──► HTTP / OData v4 ──► BI / ERP / Power BI / Excel / REST clients
@@ -110,20 +110,32 @@ tokens and the Quack gateway executor are staged for later versions.
 
 ## Building
 
-See [docs/architecture.md](docs/architecture.md#building) for the local
-development workflow.
+Initialize the official DuckDB extension-template submodules, then use its
+standard Makefile:
+
+```bash
+git submodule update --init --recursive
+make
+make test
+make test-http
+```
+
+See [docs/architecture.md](docs/architecture.md#building) for details.
 
 ## Releasing
 
-Tag a release to build the full matrix and publish the extensions as GitHub
-Release assets:
+Push a version tag to run the official `duckdb-stable-build` distribution
+pipeline and publish its extension binaries as GitHub Release assets:
 
 ```bash
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-CI then attaches `odata-<duckdb-version>-<platform>.duckdb_extension` for every
-supported DuckDB version / ABI (plus a `sha256sums.txt`) to the release.
+After the stable build succeeds, the release job attaches
+`odata-<duckdb-version>-<platform>.duckdb_extension` (or
+`.duckdb_extension.wasm` for WebAssembly), plus `sha256sums.txt`.
+The DuckDB version and platforms come from the official distribution pipeline;
+historical DuckDB versions are no longer rebuilt by a separate matrix.
 
 ## License
 

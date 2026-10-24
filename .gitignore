@@ -1,26 +1,18 @@
-# DuckDB source used for local builds (pinned via make/config)
+build
+.idea
+cmake-build-debug
+duckdb_unittest_tempdir/
+.DS_Store
+testext
+test/python/__pycache__/
+.Rhistory
 .dev/
-build/
+.cache/
 out/
-*.o
-*.a
-*.so
-*.dylib
 *.duckdb_extension
 __pycache__/
 *.pyc
-.DS_Store
-.idea/
-.vscode/
-duckdb_unittest_tempdir/
 test/http/.tmp/
-
-# Salesforce CLI cache (unrelated tooling dropped into the workspace)
 .sf/
-
-# design notes: kept locally, deliberately not versioned
-docs/design.md
-
-# stray local tooling artifacts
-*.json.tmp
 tmp-*.json
+*.json.tmp

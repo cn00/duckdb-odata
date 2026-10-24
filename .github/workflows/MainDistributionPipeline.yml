@@ -1,0 +1,108 @@
+#
+# This workflow calls the main distribution pipeline from DuckDB to build, test and (optionally) release the extension
+#
+name: Main Extension Distribution Pipeline
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' && github.sha || '' }}
+  cancel-in-progress: true
+
+jobs:
+  duckdb-stable-build:
+    name: Build extension binaries
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
+    with:
+      duckdb_version: v2.0.0
+      ci_tools_version: v2.0-cyanoptera
+      extension_name: odata
+
+  code-quality-check:
+    name: Code Quality Check
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v2.0-cyanoptera
+    with:
+      duckdb_version: v2.0.0
+      ci_tools_version: v2.0-cyanoptera
+      extension_name: odata
+      format_checks: 'format;tidy'
+
+  release:
+    name: Release (${{ github.ref_name }})
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: duckdb-stable-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: release-assets
+          pattern: odata-*-extension-*
+
+      - name: Stage release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          shopt -s nullglob
+          artifacts=(odata-*-extension-*/)
+          if ((${#artifacts[@]} == 0)); then
+            echo "::error::No odata distribution artifacts were downloaded"
+            exit 1
+          fi
+          assets=()
+          for directory in "${artifacts[@]}"; do
+            artifact="${directory%/}"
+            version="${artifact#odata-}"
+            version="${version%%-extension-*}"
+            platform="${artifact#*-extension-}"
+            binaries=("$directory"odata.duckdb_extension*)
+            if ((${#binaries[@]} != 1)); then
+              echo "::error::Expected exactly one odata extension in ${artifact}"
+              exit 1
+            fi
+            suffix="${binaries[0]#"$directory"odata}"
+            asset="odata-${version}-${platform}${suffix}"
+            cp "${binaries[0]}" "$asset"
+            assets+=("$asset")
+          done
+          sha256sum "${assets[@]}" > sha256sums.txt
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd release-assets
+          assets=(odata-*.duckdb_extension*)
+          notes="${RUNNER_TEMP}/release-notes.md"
+          {
+            echo "# duckdb-odata ${RELEASE_TAG}"
+            echo
+            echo "Extension binaries produced by the official DuckDB stable distribution pipeline."
+            echo "Use a matching DuckDB version and platform; native extensions require \`-unsigned\`."
+            echo
+            echo "| Asset |"
+            echo "| --- |"
+            for asset in "${assets[@]}"; do
+              printf '| `%s` |\n' "$asset"
+            done
+            echo
+            echo "Checksums: \`sha256sums.txt\`. Quick start: [README](https://github.com/${GH_REPO}/blob/${RELEASE_TAG}/README.md)."
+          } > "$notes"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --title "duckdb-odata ${RELEASE_TAG}" --notes-file "$notes"
+            gh release upload "$RELEASE_TAG" "${assets[@]}" sha256sums.txt --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" sha256sums.txt \
+              --verify-tag --title "duckdb-odata ${RELEASE_TAG}" --notes-file "$notes"
+          fi
+
+      - name: Show release assets
+        run: ls -la release-assets/odata-*.duckdb_extension* release-assets/sha256sums.txt

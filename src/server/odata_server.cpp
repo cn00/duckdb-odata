@@ -182,8 +182,10 @@ Route ParseRoute(const ODataServerState &state, const std::string &full_path) {
 		bool quoted = false;
 		for (size_t j = i + 1; j < remaining.size(); j++) {
 			if (remaining[j] == '\'') {
-				if (quoted && j + 1 < remaining.size() && remaining[j + 1] == '\'') j++;
-				else quoted = !quoted;
+				if (quoted && j + 1 < remaining.size() && remaining[j + 1] == '\'')
+					j++;
+				else
+					quoted = !quoted;
 			} else if (!quoted && remaining[j] == ')') {
 				close = j;
 				break;
@@ -292,7 +294,8 @@ bool StartODataServer(ODataServerState &state, const std::string &address, const
 	}
 	auto server = std::make_shared<SocketHttpServer>();
 	// The registry keeps `state` alive for the process lifetime (v0.1).
-	if (!server->Start(host, port, [&state](const HttpRequest &request) { return HandleODataRequest(state, request); })) {
+	if (!server->Start(host, port,
+	                   [&state](const HttpRequest &request) { return HandleODataRequest(state, request); })) {
 		error = "could not bind to " + host + ":" + std::to_string(port);
 		return false;
 	}
@@ -428,7 +431,9 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 	}
 	struct QuerySlot {
 		ODataServerState &state;
-		~QuerySlot() { state.active_queries.fetch_sub(1); }
+		~QuerySlot() {
+			state.active_queries.fetch_sub(1);
+		}
 	} query_slot {state};
 
 	// parse OData query options
@@ -484,7 +489,8 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 	}
 
 	// server-side top cap (design doc section 21)
-	if (writing) return ExecuteWrite(con, request, entity, route.keys, state.base_path);
+	if (writing)
+		return ExecuteWrite(con, request, entity, route.keys, state.base_path);
 	const int64_t odata_max_top = state.max_top;
 	// key lookup
 	if (!route.keys.empty()) {
@@ -561,7 +567,8 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 	}
 	uint64_t rows = 0;
 	std::string rows_json = SerializeRows(*result, rows);
-	if (state.max_response_bytes >= 0 && static_cast<int64_t>(body.size() + rows_json.size() + 16) > state.max_response_bytes) {
+	if (state.max_response_bytes >= 0 &&
+	    static_cast<int64_t>(body.size() + rows_json.size() + 16) > state.max_response_bytes) {
 		return MakeError(413, "ResponseTooLarge", "response exceeds odata_max_response_bytes");
 	}
 	bool has_more = false;
@@ -583,7 +590,8 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 	}
 	if (has_more) {
 		int64_t current_skip = query.skip < 0 ? 0 : query.skip;
-		body += ",\"@odata.nextLink\":\"" + JsonEscape(NextLink(request, current_skip + static_cast<int64_t>(rows))) + "\"";
+		body +=
+		    ",\"@odata.nextLink\":\"" + JsonEscape(NextLink(request, current_skip + static_cast<int64_t>(rows))) + "\"";
 	}
 	body += ",\"value\":[" + rows_json + "]}";
 	return MakeJson(200, body);

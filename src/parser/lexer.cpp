@@ -106,8 +106,8 @@ std::vector<Token> Tokenize(const std::string &input) {
 		}
 
 		// number literal
-		if (std::isdigit(static_cast<unsigned char>(c)) || (c == '-' && i + 1 < input.size() &&
-		                                                   std::isdigit(static_cast<unsigned char>(input[i + 1])))) {
+		if (std::isdigit(static_cast<unsigned char>(c)) ||
+		    (c == '-' && i + 1 < input.size() && std::isdigit(static_cast<unsigned char>(input[i + 1])))) {
 			size_t start = i;
 			if (c == '-') {
 				i++;

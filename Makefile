@@ -1,26 +1,16 @@
-# duckdb-odata development helpers.
-#
-# DUCKDB_SRC points at a DuckDB source tree of the version you want to load the
-# extension into. Defaults to .dev/duckdb (clone/extract v1.5.5 there).
-DUCKDB_SRC ?= $(CURDIR)/.dev/duckdb
-BUILD_DIR ?= $(DUCKDB_SRC)/build
+PROJ_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: build test-http clean configure fetch-duckdb
+# Configuration of extension
+EXT_NAME=odata
+EXT_CONFIG=${PROJ_DIR}extension_config.cmake
 
-fetch-duckdb:
-	bash scripts/fetch_duckdb.sh v1.5.5 $(DUCKDB_SRC)
+# Include the Makefile from extension-ci-tools
+include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
-configure:
-	cmake -B $(BUILD_DIR) -S $(DUCKDB_SRC) -DCMAKE_BUILD_TYPE=Release \
-		-DDUCKDB_EXTENSION_CONFIGS="$(CURDIR)/extension_config.cmake"
+DUCKDB_CLI ?= $(PROJ_DIR)build/release/duckdb
+EXTENSION_PATH ?= $(PROJ_DIR)build/release/extension/odata/odata.duckdb_extension
 
-build: configure
-	cmake --build $(BUILD_DIR) --target odata_loadable_extension -j
-	@echo "extension built at: $(BUILD_DIR)/extension/odata/odata.duckdb_extension"
-
-test-http: build
-	python3 test/http/odata_http_test.py
-	python3 test/http/odata_write_test.py
-
-clean:
-	rm -rf $(BUILD_DIR)
+.PHONY: test-http
+test-http: all
+	python3 test/http/odata_http_test.py "$(DUCKDB_CLI)" "$(EXTENSION_PATH)"
+	python3 test/http/odata_write_test.py "$(DUCKDB_CLI)" "$(EXTENSION_PATH)"

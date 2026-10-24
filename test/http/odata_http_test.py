@@ -119,8 +119,9 @@ INSERT INTO t_defaults VALUES (1, 'auto'), (2, 'auto2');
 CALL odata_expose('t_defaults');
 SELECT * FROM odata_serve();
 """
-    proc = subprocess.Popen([DUCKDB, "-unsigned"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen(
+        [DUCKDB, "-unsigned"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
     try:
         proc.stdin.write(sql)
         proc.stdin.flush()
@@ -188,6 +189,11 @@ INSERT INTO private_data VALUES (1, 'Public name', 'do-not-serve');
 CALL odata_expose('private_data', columns := ['id', 'name']);
 CALL odata_entity('private_data', key := 'id');
 
+CREATE TABLE mixed_names ("ID" BIGINT, "DisplayName" VARCHAR, hidden VARCHAR);
+INSERT INTO mixed_names VALUES (7, 'MixedCase', 'hidden');
+CALL odata_expose('mixed_names', COLUMNS := ['ID', 'DisplayName']);
+CALL odata_entity('mixed_names', KEY := 'ID');
+
 -- multi-schema: s1.customers is exposed as the "s1_customers" entity set
 CREATE SCHEMA s1;
 CREATE TABLE s1.customers (id BIGINT, name VARCHAR);
@@ -198,8 +204,9 @@ CALL odata_entity('s1.customers', key := 'id');
 SET odata_page_size = 2;
 CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
 """
-    proc = subprocess.Popen([DUCKDB, "-unsigned"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen(
+        [DUCKDB, "-unsigned"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
     try:
         proc.stdin.write(sql)
         proc.stdin.flush()
@@ -226,8 +233,13 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
 
         s, b = get("/odata/customers?$filter=active%20eq%20true&$select=id,name&$orderby=id%20asc", token="secret")
         doc = json.loads(b)
-        check("filter+select+orderby", s == 200 and [r["id"] for r in doc["value"]] == [1, 3]
-              and all(set(r) == {"id", "name"} for r in doc["value"]), b)
+        check(
+            "filter+select+orderby",
+            s == 200
+            and [r["id"] for r in doc["value"]] == [1, 3]
+            and all(set(r) == {"id", "name"} for r in doc["value"]),
+            b,
+        )
 
         s, b = get("/odata/customers?$count=true", token="secret")
         doc = json.loads(b)
@@ -256,7 +268,7 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
         check("process survives bad filter", proc.poll() is None, "")
 
         # double-quoted string literals are tolerated (common in the wild)
-        s, b = get('/odata/customers?$filter=name%20eq%20%22Bob%22', token="secret")
+        s, b = get("/odata/customers?$filter=name%20eq%20%22Bob%22", token="secret")
         doc = json.loads(b)
         check("double-quoted filter", s == 200 and [r["id"] for r in doc["value"]] == [2], b)
         check("process survives double-quote filter", proc.poll() is None, "")
@@ -271,6 +283,19 @@ CALL odata_serve('http://{HOST}:{PORT}', token := 'secret');
         check("column allow-list rejects secret projection", s == 400, b)
         s, b = get("/odata/private_data?$filter=secret%20eq%20%27do-not-serve%27", token="secret")
         check("column allow-list rejects secret filter", s == 400, b)
+
+        s, b = get("/odata/mixed_names", token="secret")
+        check(
+            "collection preserves column-name casing",
+            s == 200 and json.loads(b)["value"] == [{"ID": 7, "DisplayName": "MixedCase"}],
+            b,
+        )
+        s, b = get("/odata/mixed_names(7)", token="secret")
+        check(
+            "key lookup preserves column-name casing",
+            s == 200 and json.loads(b)["ID"] == 7 and json.loads(b)["DisplayName"] == "MixedCase",
+            b,
+        )
 
         s, b = get("/odata/customers", token="wrong")
         check("bad token -> 401", s == 401, b)
@@ -317,6 +342,10 @@ SELECT * FROM odata_expose_schema('s_ex');
 ATTACH ':memory:' AS db_cat;
 CREATE TABLE db_cat.main.c (id BIGINT);
 SELECT * FROM odata_expose_schema('db_cat.main');
+CALL odata_serve(token := '', base_path := '/custom', read_only := true);
+SELECT CASE WHEN running AND base_path = '/custom' AND NOT token_required
+       THEN 'named-options-ok' ELSE 'named-options-failed' END FROM odata_status();
+CALL odata_stop();
 """
     proc = subprocess.run([DUCKDB, "-unsigned"], input=sql, capture_output=True, text=True, timeout=30)
     out = (proc.stdout or "") + (proc.stderr or "")
@@ -324,6 +353,7 @@ SELECT * FROM odata_expose_schema('db_cat.main');
     check("expose('t_ex') row shows table", "t_ex" in out, out[:300])
     check("expose_schema('s_ex') row shows qualified table", "s_ex.x" in out, out[:300])
     check("expose_schema('db_cat.main') rows", "db_cat_main_c" in out and "db_cat.main.c" in out, out[:400])
+    check("zero-address serve accepts optional named parameters", "named-options-ok" in out, out)
     check("expose rows exit code", proc.returncode == 0, str(proc.returncode))
 
 

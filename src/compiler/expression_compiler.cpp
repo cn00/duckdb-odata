@@ -19,25 +19,34 @@ struct FunctionMapEntry {
 // function names are rejected so no user text reaches SQL.)
 const std::vector<FunctionMapEntry> &GetFunctionMap() {
 	static const std::vector<FunctionMapEntry> map = {
-	    {"contains", "contains", 2, 2},   {"startswith", "starts_with", 2, 2},
-	    {"endswith", "ends_with", 2, 2},  {"tolower", "lower", 1, 1},
-	    {"toupper", "upper", 1, 1},       {"length", "length", 1, 1},
-	    {"substring", "substring", 2, 3}, {"concat", "concat", 2, 2},
-	    {"indexof", "strpos", 2, 2},      {"trim", "trim", 1, 1},
-	    {"year", "year", 1, 1},           {"month", "month", 1, 1},
-	    {"day", "day", 1, 1},             {"hour", "hour", 1, 1},
-	    {"minute", "minute", 1, 1},       {"second", "second", 1, 1},
-	    {"now", "now", 0, 0},             {"round", "round", 2, 2},
-	    {"floor", "floor", 1, 1},         {"ceiling", "ceil", 1, 1},
+	    {"contains", "contains", 2, 2},
+	    {"startswith", "starts_with", 2, 2},
+	    {"endswith", "ends_with", 2, 2},
+	    {"tolower", "lower", 1, 1},
+	    {"toupper", "upper", 1, 1},
+	    {"length", "length", 1, 1},
+	    {"substring", "substring", 2, 3},
+	    {"concat", "concat", 2, 2},
+	    {"indexof", "strpos", 2, 2},
+	    {"trim", "trim", 1, 1},
+	    {"year", "year", 1, 1},
+	    {"month", "month", 1, 1},
+	    {"day", "day", 1, 1},
+	    {"hour", "hour", 1, 1},
+	    {"minute", "minute", 1, 1},
+	    {"second", "second", 1, 1},
+	    {"now", "now", 0, 0},
+	    {"round", "round", 2, 2},
+	    {"floor", "floor", 1, 1},
+	    {"ceiling", "ceil", 1, 1},
 	    {"abs", "abs", 1, 1},
 	};
 	return map;
 }
 
 bool IsStringBase(const std::string &lower) {
-	return lower == "varchar" || lower == "text" || lower == "string" || lower == "char" ||
-	       lower == "bpchar" || lower == "uuid" || lower == "blob" || lower == "json" ||
-	       lower == "bit" || lower == "bitstring";
+	return lower == "varchar" || lower == "text" || lower == "string" || lower == "char" || lower == "bpchar" ||
+	       lower == "uuid" || lower == "blob" || lower == "json" || lower == "bit" || lower == "bitstring";
 }
 
 std::string BaseTypeOf(const std::string &duckdb_type) {
@@ -110,8 +119,8 @@ std::string ExpressionCompiler::CompileBinary(const BinaryExpr &expr) {
 			auto &call = static_cast<const FunctionCallExpr &>(other);
 			// Functions like year/month/length return INT; string funcs return bool
 			auto lower = ToLower(call.name);
-			if (lower == "year" || lower == "month" || lower == "day" || lower == "hour" ||
-			    lower == "minute" || lower == "second" || lower == "length" || lower == "indexof") {
+			if (lower == "year" || lower == "month" || lower == "day" || lower == "hour" || lower == "minute" ||
+			    lower == "second" || lower == "length" || lower == "indexof") {
 				return "BIGINT";
 			}
 			if (lower == "tolower" || lower == "toupper" || lower == "trim" || lower == "substring" ||
@@ -213,8 +222,7 @@ std::string ExpressionCompiler::CompileLiteral(const LiteralExpr &expr, const st
 		return std::to_string(expr.integer);
 	case LiteralKind::FLOAT: {
 		std::string s = std::to_string(expr.real);
-		if (s.find('.') == std::string::npos && s.find('e') == std::string::npos &&
-		    s.find('E') == std::string::npos) {
+		if (s.find('.') == std::string::npos && s.find('e') == std::string::npos && s.find('E') == std::string::npos) {
 			s += ".0";
 		}
 		return s;

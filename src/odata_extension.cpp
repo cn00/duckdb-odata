@@ -1,6 +1,7 @@
 #include "odata_extension.hpp"
 
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/common/types/column/column_data_collection.hpp"
 #include "duckdb/common/types/value.hpp"
 #include "duckdb/function/function_set.hpp"
 #include "duckdb/function/table_function.hpp"
@@ -27,12 +28,33 @@ using duckdb_odata::ODataServerState;
 
 namespace {
 
+#if __has_include("duckdb/common/identifier.hpp")
+using ODataColumnName = Identifier;
+#else
+using ODataColumnName = string;
+#endif
+
+void AddNamedParameters(TableFunction &function,
+                        std::initializer_list<std::pair<const char *, LogicalType>> parameters) {
+#if __has_include("duckdb/common/identifier.hpp")
+	function.GetSignature().WithTypedKwargs("options", [&](TypedKwargs &options) {
+		for (auto &parameter : parameters) {
+			options.Add(parameter.first, parameter.second);
+		}
+	});
+#else
+	for (auto &parameter : parameters) {
+		function.named_parameters[parameter.first] = parameter.second;
+	}
+#endif
+}
+
 enum class ODataActionKind { STOP, ENTITY };
 
 struct ODataActionData : public TableFunctionData {
 	ODataActionKind kind;
-	std::string arg;         // table / schema
-	std::string key;         // odata_entity key column
+	std::string arg;                 // table / schema
+	std::string key;                 // odata_entity key column
 	shared_ptr<DatabaseInstance> db; // strong ref keeps instance alive
 	int64_t max_top = 10000;
 };
@@ -47,8 +69,8 @@ struct ODataGlobalState : public GlobalTableFunctionState {
 
 struct ODataServeData : public TableFunctionData {
 	// call inputs (all optional, defaults mirror quack_serve)
-	std::string address;   // empty => localhost on a free port
-	std::string token;     // honored only when token_provided
+	std::string address; // empty => localhost on a free port
+	std::string token;   // honored only when token_provided
 	bool token_provided = false;
 	bool read_only = true;
 	std::string base_path; // empty => "/odata"
@@ -62,12 +84,13 @@ struct ODataServeData : public TableFunctionData {
 };
 
 unique_ptr<FunctionData> ServeBind(ClientContext &context, TableFunctionBindInput &input,
-                                   vector<LogicalType> &return_types, vector<string> &names) {
+                                   vector<LogicalType> &return_types, vector<ODataColumnName> &names) {
 	auto result = make_uniq<ODataServeData>();
 	result->db = context.db;
 	auto mode = input.named_parameters.find("read_only");
 	if (mode != input.named_parameters.end()) {
-		if (mode->second.IsNull()) throw InvalidInputException("read_only cannot be NULL");
+		if (mode->second.IsNull())
+			throw InvalidInputException("read_only cannot be NULL");
 		result->read_only = mode->second.GetValue<bool>();
 	}
 	if (!input.inputs.empty()) {
@@ -134,7 +157,7 @@ void ServeExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk 
 }
 
 unique_ptr<FunctionData> CommonBind(ClientContext &context, ODataActionKind kind, TableFunctionBindInput &input,
-                                    vector<LogicalType> &return_types, vector<string> &names) {
+                                    vector<LogicalType> &return_types, vector<ODataColumnName> &names) {
 	auto result = make_uniq<ODataActionData>();
 	result->kind = kind;
 	result->db = context.db;
@@ -150,7 +173,7 @@ unique_ptr<FunctionData> CommonBind(ClientContext &context, ODataActionKind kind
 }
 
 unique_ptr<FunctionData> StopBind(ClientContext &context, TableFunctionBindInput &input,
-                                  vector<LogicalType> &return_types, vector<string> &names) {
+                                  vector<LogicalType> &return_types, vector<ODataColumnName> &names) {
 	return CommonBind(context, ODataActionKind::STOP, input, return_types, names);
 }
 
@@ -168,10 +191,14 @@ struct ODataExposeData : public TableFunctionData {
 // to decide how to render a table reference / entity name.
 static std::string ScalarQueryResult(duckdb::Connection &con, const std::string &sql) {
 	auto res = con.Query(sql);
-	if (!res || res->HasError() || res->RowCount() == 0) {
+	if (!res || res->HasError()) {
 		return "";
 	}
-	return res->GetValue(0, 0).ToString();
+	auto chunk = res->Fetch();
+	if (!chunk || chunk->size() == 0) {
+		return "";
+	}
+	return chunk->GetValue(0, 0).ToString();
 }
 
 // Render the DuckDB table a binding points at: the bare table name when it
@@ -208,7 +235,7 @@ static std::string SchemaEntityName(const EntityBinding &binding, const std::str
 }
 
 unique_ptr<FunctionData> ExposeBind(ClientContext &context, TableFunctionBindInput &input,
-                                    vector<LogicalType> &return_types, vector<string> &names) {
+                                    vector<LogicalType> &return_types, vector<ODataColumnName> &names) {
 	auto result = make_uniq<ODataExposeData>();
 	result->db = context.db;
 	if (!input.inputs.empty()) {
@@ -256,7 +283,8 @@ void ExposeExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 					}
 				}
 				if (!exists) {
-					throw duckdb_odata::ODataParseException("column '" + column + "' does not exist on table '" + binding.table + "'");
+					throw duckdb_odata::ODataParseException("column '" + column + "' does not exist on table '" +
+					                                        binding.table + "'");
 				}
 			}
 		}
@@ -307,25 +335,27 @@ void ExposeSchemaExecute(ClientContext &context, TableFunctionInput &data_p, Dat
 	}
 	auto state = duckdb_odata::ODataServerRegistry::Get().GetOrCreate(*d.db);
 	duckdb::Connection con(*d.db);
-	std::string catalog_scope = catalog_arg.empty() ? "current_catalog()" : duckdb_odata::QuoteStringLiteral(catalog_arg);
+	std::string catalog_scope =
+	    catalog_arg.empty() ? "current_catalog()" : duckdb_odata::QuoteStringLiteral(catalog_arg);
 	auto res = con.Query("SELECT table_name, database_name FROM duckdb_tables() WHERE schema_name = " +
-	                     duckdb_odata::QuoteStringLiteral(schema) + " AND NOT internal AND NOT temporary AND database_name = " +
-	                     catalog_scope);
+	                     duckdb_odata::QuoteStringLiteral(schema) +
+	                     " AND NOT internal AND NOT temporary AND database_name = " + catalog_scope);
 	if (res->HasError()) {
 		throw InvalidInputException("odata_expose_schema failed: %s", res->GetError());
 	}
 	std::string current_schema = ScalarQueryResult(con, "SELECT current_schema()");
 	std::string current_catalog = ScalarQueryResult(con, "SELECT current_catalog()");
 	std::vector<std::pair<std::string, std::string>> exposed; // (entity, table)
-	for (idx_t r = 0; r < res->RowCount(); r++) {
-		std::string tname = res->GetValue(0, r).ToString();
+	auto rows = res->Collection().GetRows();
+	for (idx_t r = 0; r < rows.size(); r++) {
+		std::string tname = rows.GetValue(0, r).ToString();
 		if (tname.empty()) {
 			continue;
 		}
 		EntityBinding binding;
 		binding.table = tname;
 		binding.schema = schema;
-		binding.catalog = res->GetValue(1, r).ToString();
+		binding.catalog = rows.GetValue(1, r).ToString();
 		// Relative naming: bare table name in the current scope, qualifier
 		// prefixes outside of it (see SchemaEntityName).
 		binding.name = SchemaEntityName(binding, current_schema, current_catalog);
@@ -355,7 +385,7 @@ void ExposeSchemaExecute(ClientContext &context, TableFunctionInput &data_p, Dat
 }
 
 unique_ptr<FunctionData> EntityBind(ClientContext &context, TableFunctionBindInput &input,
-                                    vector<LogicalType> &return_types, vector<string> &names) {
+                                    vector<LogicalType> &return_types, vector<ODataColumnName> &names) {
 	auto data = CommonBind(context, ODataActionKind::ENTITY, input, return_types, names);
 	auto &d = data->Cast<ODataActionData>();
 	if (!input.inputs.empty()) {
@@ -428,7 +458,7 @@ void ActionExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 // ---- odata_status() : real table function returning a single row ----------
 
 unique_ptr<FunctionData> StatusBind(ClientContext &context, TableFunctionBindInput &input,
-                                    vector<LogicalType> &return_types, vector<string> &names) {
+                                    vector<LogicalType> &return_types, vector<ODataColumnName> &names) {
 	return_types.push_back(LogicalType::BOOLEAN);
 	names.emplace_back("running");
 	return_types.push_back(LogicalType::VARCHAR);
@@ -455,7 +485,8 @@ void StatusExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk
 
 	auto state = ODataServerRegistry::Get().Find(*context.db);
 	bool running = state ? state->running : false;
-	std::string address = state && !state->listen_url.empty() ? state->listen_url : (state ? state->started_address : "");
+	std::string address =
+	    state && !state->listen_url.empty() ? state->listen_url : (state ? state->started_address : "");
 	std::string base_path = state ? state->base_path : "/odata";
 	bool token_required = state ? !state->token.empty() : false;
 	idx_t entity_count = state ? state->bindings.size() : 0;
@@ -478,10 +509,10 @@ void RegisterOptions(DatabaseInstance &db) {
 	                          Value::BIGINT(104857600));
 	config.AddExtensionOption("odata_query_timeout_ms", "Query timeout in ms (0 = disabled)", LogicalType::BIGINT,
 	                          Value::BIGINT(0));
-	config.AddExtensionOption("odata_page_size", "Default OData server-driven page size (0 = disabled)", LogicalType::BIGINT,
-	                          Value::BIGINT(0));
-	config.AddExtensionOption("odata_max_concurrent_queries", "Maximum concurrent OData queries (0 = disabled)", LogicalType::BIGINT,
-	                          Value::BIGINT(0));
+	config.AddExtensionOption("odata_page_size", "Default OData server-driven page size (0 = disabled)",
+	                          LogicalType::BIGINT, Value::BIGINT(0));
+	config.AddExtensionOption("odata_max_concurrent_queries", "Maximum concurrent OData queries (0 = disabled)",
+	                          LogicalType::BIGINT, Value::BIGINT(0));
 }
 
 void LoadInternal(ExtensionLoader &loader) {
@@ -490,13 +521,13 @@ void LoadInternal(ExtensionLoader &loader) {
 	// odata_serve(): no-arg (defaults: localhost on a free port, auto token)
 	// and single-address overloads; both accept token/base_path named params.
 	TableFunction serve0("odata_serve", {}, ServeExecute, ServeBind, CommonInit);
-	serve0.named_parameters["token"] = LogicalType::VARCHAR;
-	serve0.named_parameters["read_only"] = LogicalType::BOOLEAN;
-	serve0.named_parameters["base_path"] = LogicalType::VARCHAR;
+	AddNamedParameters(
+	    serve0,
+	    {{"token", LogicalType::VARCHAR}, {"read_only", LogicalType::BOOLEAN}, {"base_path", LogicalType::VARCHAR}});
 	TableFunction serve1("odata_serve", {LogicalType::VARCHAR}, ServeExecute, ServeBind, CommonInit);
-	serve1.named_parameters["token"] = LogicalType::VARCHAR;
-	serve1.named_parameters["read_only"] = LogicalType::BOOLEAN;
-	serve1.named_parameters["base_path"] = LogicalType::VARCHAR;
+	AddNamedParameters(
+	    serve1,
+	    {{"token", LogicalType::VARCHAR}, {"read_only", LogicalType::BOOLEAN}, {"base_path", LogicalType::VARCHAR}});
 	TableFunctionSet serve_set("odata_serve");
 	serve_set.AddFunction(serve0);
 	serve_set.AddFunction(serve1);
@@ -506,7 +537,7 @@ void LoadInternal(ExtensionLoader &loader) {
 	loader.RegisterFunction(stop);
 
 	TableFunction expose("odata_expose", {LogicalType::VARCHAR}, ExposeExecute, ExposeBind, CommonInit);
-	expose.named_parameters["columns"] = LogicalType::LIST(LogicalType::VARCHAR);
+	AddNamedParameters(expose, {{"columns", LogicalType::LIST(LogicalType::VARCHAR)}});
 	loader.RegisterFunction(expose);
 
 	TableFunction expose_schema("odata_expose_schema", {LogicalType::VARCHAR}, ExposeSchemaExecute, ExposeBind,
@@ -514,7 +545,7 @@ void LoadInternal(ExtensionLoader &loader) {
 	loader.RegisterFunction(expose_schema);
 
 	TableFunction entity("odata_entity", {LogicalType::VARCHAR}, ActionExecute, EntityBind, CommonInit);
-	entity.named_parameters["key"] = LogicalType::VARCHAR;
+	AddNamedParameters(entity, {{"key", LogicalType::VARCHAR}});
 	loader.RegisterFunction(entity);
 
 	TableFunction status("odata_status", {}, StatusExecute, StatusBind, StatusInit);

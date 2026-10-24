@@ -4,13 +4,13 @@
 #include "parser/odata_parser.hpp"
 
 #include "duckdb.hpp"
+#include "duckdb/common/types/column/column_data_collection.hpp"
 #include "duckdb/main/connection.hpp"
-#include "duckdb/main/materialized_query_result.hpp"
 
 namespace duckdb_odata {
 
+using duckdb::ColumnDataRowCollection;
 using duckdb::Connection;
-using duckdb::MaterializedQueryResult;
 using duckdb::Value;
 
 namespace {
@@ -28,16 +28,16 @@ std::string SqlLiteral(const std::string &value) {
 	return s;
 }
 
-duckdb::unique_ptr<MaterializedQueryResult> RunSql(Connection &con, const std::string &sql) {
+ColumnDataRowCollection RunSql(Connection &con, const std::string &sql) {
 	auto result = con.Query(sql);
 	if (result->HasError()) {
 		throw ODataParseException("catalog introspection failed: " + result->GetError());
 	}
-	return result;
+	return result->Collection().GetRows();
 }
 
-std::string GetString(duckdb::unique_ptr<MaterializedQueryResult> &result, idx_t row, idx_t col) {
-	auto value = result->GetValue(col, row);
+std::string GetString(const ColumnDataRowCollection &result, idx_t row, idx_t col) {
+	auto value = result.GetValue(col, row);
 	if (value.IsNull()) {
 		return "";
 	}
@@ -110,8 +110,9 @@ void ParseQualifiedSchema(const std::string &qualified_name, std::string &catalo
 }
 
 void ResolveBindingTable(duckdb::Connection &con, EntityBinding &binding) {
-	std::string sql = "SELECT database_name, schema_name FROM duckdb_columns() WHERE table_name = " +
-	                  SqlLiteral(binding.table) + " AND NOT internal";
+	std::string sql =
+	    "SELECT database_name, schema_name FROM duckdb_columns() WHERE table_name = " + SqlLiteral(binding.table) +
+	    " AND NOT internal";
 	if (!binding.schema.empty()) {
 		sql += " AND schema_name = " + SqlLiteral(binding.schema);
 	}
@@ -123,10 +124,10 @@ void ResolveBindingTable(duckdb::Connection &con, EntityBinding &binding) {
 
 	if (binding.schema.empty() && binding.catalog.empty()) {
 		// unqualified: adopt when unambiguous, otherwise require qualification
-		if (result->RowCount() == 0) {
+		if (result.empty()) {
 			throw ODataParseException("table '" + binding.table + "' does not exist");
 		}
-		if (result->RowCount() > 1) {
+		if (result.size() > 1) {
 			throw ODataParseException("table '" + binding.table + "' exists in multiple schemas; qualify it, e.g. " +
 			                          "odata_expose('schema.table')");
 		}
@@ -135,11 +136,11 @@ void ResolveBindingTable(duckdb::Connection &con, EntityBinding &binding) {
 		return;
 	}
 	// qualified: the table must exist exactly where requested
-	if (result->RowCount() == 0) {
+	if (result.empty()) {
 		throw ODataParseException("table '" + binding.table + "' does not exist in schema '" +
 		                          (binding.schema.empty() ? "<current>" : binding.schema) + "'");
 	}
-	if (binding.catalog.empty() && result->RowCount() > 1) {
+	if (binding.catalog.empty() && result.size() > 1) {
 		// schema-qualified but no catalog: several attached databases could own
 		// the same schema.table - require catalog qualification
 		throw ODataParseException("table '" + binding.table + "' exists in multiple catalogs under schema '" +
@@ -168,7 +169,7 @@ EdmEntity MetadataGenerator::BuildEntity(const EntityBinding &binding) const {
 	sql += " AND table_name = " + SqlLiteral(binding.table);
 	sql += " AND NOT internal ORDER BY column_index";
 	auto result = RunSql(con, sql);
-	if (result->RowCount() == 0) {
+	if (result.empty()) {
 		std::string hint;
 		if (binding.schema.empty()) {
 			hint = "; table may live in another schema - qualify it, e.g. odata_expose('schema.table')";
@@ -183,14 +184,14 @@ EdmEntity MetadataGenerator::BuildEntity(const EntityBinding &binding) const {
 	entity.table = binding.table;
 
 	std::vector<EdmProperty> props;
-	for (idx_t r = 0; r < result->RowCount(); r++) {
+	for (idx_t r = 0; r < result.size(); r++) {
 		EdmProperty prop;
 		prop.name = GetString(result, r, 0);
 		prop.duckdb_type = GetString(result, r, 1);
 		bool serializable = true;
 		prop.edm_type = DuckDBTypeToEdm(prop.duckdb_type, serializable);
 		prop.serializable = serializable;
-		auto null_val = result->GetValue(2, r);
+		auto null_val = result.GetValue(2, r);
 		prop.nullable = null_val.IsNull() || null_val.GetValue<bool>();
 		props.push_back(std::move(prop));
 	}
@@ -220,11 +221,12 @@ EdmEntity MetadataGenerator::BuildEntity(const EntityBinding &binding) const {
 		std::string cons_sql = "SELECT constraint_column_names FROM duckdb_constraints() WHERE constraint_type = "
 		                       "'PRIMARY KEY' AND table_name = " +
 		                       SqlLiteral(binding.table);
-		cons_sql += " AND database_name = " + (binding.catalog.empty() ? "current_catalog()" : SqlLiteral(binding.catalog));
+		cons_sql +=
+		    " AND database_name = " + (binding.catalog.empty() ? "current_catalog()" : SqlLiteral(binding.catalog));
 		cons_sql += " AND schema_name = " + (binding.schema.empty() ? "current_schema()" : SqlLiteral(binding.schema));
 		auto cons = RunSql(con, cons_sql);
-		for (idx_t r = 0; r < cons->RowCount(); r++) {
-			auto list = duckdb::ListValue::GetChildren(cons->GetValue(0, r));
+		for (idx_t r = 0; r < cons.size(); r++) {
+			auto list = duckdb::ListValue::GetChildren(cons.GetValue(0, r));
 			if (list.size() == 1) {
 				std::string key_name = list[0].ToString();
 				bool found = false;

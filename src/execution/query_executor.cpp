@@ -16,9 +16,8 @@ std::unique_ptr<duckdb::QueryResult> LocalDuckDBExecutor::Execute(duckdb::Connec
 	return con.Query(query.sql);
 }
 
-std::unique_ptr<duckdb::QueryResult> LocalDuckDBExecutor::Execute(duckdb::Connection &con,
-                                                                    const CompiledQuery &query,
-                                                                    int64_t timeout_ms) const {
+std::unique_ptr<duckdb::QueryResult> LocalDuckDBExecutor::Execute(duckdb::Connection &con, const CompiledQuery &query,
+                                                                  int64_t timeout_ms) const {
 	if (timeout_ms <= 0) {
 		return Execute(con, query);
 	}

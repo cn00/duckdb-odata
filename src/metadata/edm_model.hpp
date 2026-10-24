@@ -13,20 +13,20 @@ namespace duckdb_odata {
 
 // OData primitive types used by v0.1 (design doc section 14 mapping table).
 enum class EdmType {
-	BOOLEAN,    // Edm.Boolean
-	SBYTE,      // Edm.SByte
-	INT16,      // Edm.Int16
-	INT32,      // Edm.Int32
-	INT64,      // Edm.Int64
-	SINGLE,     // Edm.Single
-	DOUBLE,     // Edm.Double
-	DECIMAL,    // Edm.Decimal
-	STRING,     // Edm.String
-	DATE,       // Edm.Date
-	TIME_OF_DAY, // Edm.TimeOfDay
+	BOOLEAN,         // Edm.Boolean
+	SBYTE,           // Edm.SByte
+	INT16,           // Edm.Int16
+	INT32,           // Edm.Int32
+	INT64,           // Edm.Int64
+	SINGLE,          // Edm.Single
+	DOUBLE,          // Edm.Double
+	DECIMAL,         // Edm.Decimal
+	STRING,          // Edm.String
+	DATE,            // Edm.Date
+	TIME_OF_DAY,     // Edm.TimeOfDay
 	DATETIME_OFFSET, // Edm.DateTimeOffset
-	GUID,       // Edm.Guid
-	BINARY,     // Edm.Binary
+	GUID,            // Edm.Guid
+	BINARY,          // Edm.Binary
 	UNSUPPORTED
 };
 

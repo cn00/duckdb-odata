@@ -54,8 +54,8 @@ EdmType DuckDBTypeToEdm(const std::string &duckdb_type, bool &serializable) {
 	if (t == "time" || t == "timetz") {
 		return EdmType::TIME_OF_DAY;
 	}
-	if (t == "timestamp" || t == "timestamp with time zone" || t == "timestamptz" ||
-	    t == "datetime" || t == "datetime2") {
+	if (t == "timestamp" || t == "timestamp with time zone" || t == "timestamptz" || t == "datetime" ||
+	    t == "datetime2") {
 		return EdmType::DATETIME_OFFSET;
 	}
 	if (t == "uuid") {

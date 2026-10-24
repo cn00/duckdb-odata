@@ -126,20 +126,23 @@ raw user input in SQL.
 
 ## Building
 
-Requires a DuckDB source checkout of the version you load the extension into
-(the extension is compiled against DuckDB internal headers).
+The repository follows the official DuckDB extension template and pins both
+DuckDB and `extension-ci-tools` as submodules. Initialize them before building:
 
 ```bash
-# 1) have duckdb sources ready, e.g. v1.5.5
-# 2) configure duckdb with this repo as an out-of-tree extension
-cmake -B .dev/duckdb/build -S .dev/duckdb \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DDUCKDB_EXTENSION_CONFIGS="$PWD/extension_config.cmake"
-cmake --build .dev/duckdb/build --target odata_loadable_extension
-# -> .dev/duckdb/build/extension/odata/odata.duckdb_extension
+git submodule update --init --recursive
+make
+# -> build/release/extension/odata/odata.duckdb_extension
 ```
 
-Run it with any matching duckdb CLI:
+Run the SQLLogicTests and HTTP integration suites with:
+
+```bash
+make test
+make test-http
+```
+
+To load the extension with a matching DuckDB CLI:
 
 ```sql
 LOAD '/absolute/path/to/odata.duckdb_extension';
@@ -150,4 +153,11 @@ CALL odata_serve();                     -- or pin address/token:
 -- CALL odata_serve('http://127.0.0.1:8080', token := 'secret');
 ```
 
-The `Makefile` wraps the steps above (`make build`, `make test-http`).
+The template Makefile delegates the standard build and SQL test targets to
+`extension-ci-tools`; `test-http` runs both HTTP integration suites.
+
+The extension supports the pinned DuckDB v2.0.0 API and retains v1.5.5
+source compatibility. CI builds only the stable version configured in the
+official distribution pipeline. Table-function registration adapts to v2.0's identifier-based
+column names and typed keyword options without changing the SQL interface.
+Always load a binary built for the exact DuckDB version used by the CLI.
