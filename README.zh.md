@@ -88,6 +88,83 @@ CALL odata_serve();   -- 从返回行读取 listen_url / auth_token
 - 没有主键的表也可以暴露；执行
   `CALL odata_entity('msxlsx', key := 'col')` 即可启用 `(key)` 单实体查询。
 
+### PostgreSQL
+
+在新的 DuckDB 会话中执行；加载未签名的 OData 二进制时，请使用
+`duckdb -unsigned` 启动。替换连接信息和扩展路径，并确认当前
+DuckDB 版本及平台支持 `postgres` 连接器。
+
+```sql
+INSTALL postgres;
+LOAD postgres;
+ATTACH 'host=localhost port=5432 dbname=app user=odata_reader password=REPLACE_ME'
+    AS pg (TYPE postgres, READ_ONLY);
+
+LOAD '/path/to/odata.duckdb_extension';
+CALL odata_expose_schema('pg.public');
+FROM odata_serve();
+```
+
+例如，当 `pg` 不是当前 catalog 时，`pg.public.customers` 对应实体
+`pg_public_customers`。实际名称以返回的 `entity` / `table` 映射为准。
+
+### Microsoft SQL Server：同时暴露两个数据库
+
+使用社区 `mssql` 连接器，将两个数据库分别 ATTACH 为独立 catalog。
+在新的会话中执行（未签名 OData 二进制使用 `duckdb -unsigned` 启动）：
+
+```sql
+INSTALL mssql FROM community;
+LOAD mssql;
+ATTACH 'Server=$MSSQL_HOST,$MSSQL_PORT;Database=$MSSQL_DATABASE;User Id=$MSSQL_USER;Password=$MSSQL_PASSWORD;TrustServerCertificate=yes'
+    AS mdm (TYPE mssql);
+ATTACH 'Server=$MSSQL_HOST,$MSSQL_PORT;Database=$MSSQL_DATABASE2;User Id=$MSSQL_USER;Password=$MSSQL_PASSWORD;TrustServerCertificate=yes'
+    AS isales (TYPE mssql);
+
+LOAD '/path/to/odata.duckdb_extension';
+CALL odata_expose_schema('mdm.dbo');
+FROM odata_expose_schema('isales.dbo');
+FROM odata_serve();
+```
+
+上面的 `$MSSQL_*` 都是占位符：DuckDB **不会**自动展开 SQL 字符串中的
+环境变量。请在 SQL 客户端中安全替换连接信息和扩展路径后执行，
+不要将真实凭据提交到仓库，并使用仅具备所需读取权限的数据库账号。
+`TrustServerCertificate=yes` 会跳过服务端证书校验；生产环境应配置可信证书，
+并移除该覆盖选项。安装前请确认连接器支持当前 DuckDB 版本及平台。
+
+不切换当前 catalog/schema 时，`mdm.dbo.customers` 对应
+`mdm_dbo_customers`，`isales.dbo.orders` 对应 `isales_dbo_orders`。
+`CALL` 和 `FROM` 都能执行这些表函数并显示返回行；两个数据库共享同一个
+OData 服务端点，无需复制数据。
+
+### 访问 OData 服务
+
+两种示例中的 `odata_serve()` 都会返回 `listen_uri`、`listen_url` 和
+`auth_token`。将 `listen_url` 和 `auth_token` 复制到另一个终端：
+
+```bash
+export ODATA_URL='http://localhost:54321'  # 替换为 listen_url
+export ODATA_TOKEN='REPLACE_WITH_AUTH_TOKEN'
+curl -H "Authorization: Bearer $ODATA_TOKEN" "$ODATA_URL/odata/"
+curl -H "Authorization: Bearer $ODATA_TOKEN" "$ODATA_URL/odata/\$metadata"
+# SQL Server 示例；替换为 odata_expose_schema 返回的实际实体名：
+curl -H "Authorization: Bearer $ODATA_TOKEN" "$ODATA_URL/odata/mdm_dbo_customers?\$top=10"
+```
+
+服务运行期间请保持 DuckDB 进程和 ATTACH 的数据库打开，不要使用执行完 SQL
+就退出的一次性 CLI 调用。示例保留 localhost 监听、自动 bearer 认证及只读
+OData 请求。暴露整个 schema 会发布其中发现的全部表和视图；
+需要更小的开放范围时，请使用带列白名单的 `odata_expose`。
+DETACH 数据源前先停止服务：
+
+```sql
+CALL odata_stop();
+```
+
+连接器参考：[PostgreSQL](https://duckdb.org/docs/stable/core_extensions/postgres/overview.html)
+与 [mssql](https://duckdb.org/community_extensions/extensions/mssql)。
+
 ## 基本写操作
 
 在 `odata_serve` 中设置 `read_only := false` 可开启 POST 新增（201 + Location）、

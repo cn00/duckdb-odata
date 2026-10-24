@@ -93,6 +93,87 @@ Notes:
 - Tables without a primary key can still be exposed; add
   `CALL odata_entity('msxlsx', key := 'col')` to enable `(key)` lookups.
 
+### PostgreSQL
+
+Run this in a fresh DuckDB session started with `duckdb -unsigned` when loading
+an unsigned OData binary. Replace the connection values and extension path;
+the `postgres` connector must be available for your DuckDB version/platform.
+
+```sql
+INSTALL postgres;
+LOAD postgres;
+ATTACH 'host=localhost port=5432 dbname=app user=odata_reader password=REPLACE_ME'
+    AS pg (TYPE postgres, READ_ONLY);
+
+LOAD '/path/to/odata.duckdb_extension';
+CALL odata_expose_schema('pg.public');
+FROM odata_serve();
+```
+
+For example, `pg.public.customers` is exposed as `pg_public_customers` when
+`pg` is not the current catalog. Use the returned `entity` / `table` rows as
+the authoritative mapping.
+
+### Microsoft SQL Server: expose two databases
+
+The community `mssql` connector attaches each database as a separate catalog.
+Run this in a fresh session (`duckdb -unsigned` for an unsigned OData binary):
+
+```sql
+INSTALL mssql FROM community;
+LOAD mssql;
+ATTACH 'Server=$MSSQL_HOST,$MSSQL_PORT;Database=$MSSQL_DATABASE;User Id=$MSSQL_USER;Password=$MSSQL_PASSWORD;TrustServerCertificate=yes'
+    AS mdm (TYPE mssql);
+ATTACH 'Server=$MSSQL_HOST,$MSSQL_PORT;Database=$MSSQL_DATABASE2;User Id=$MSSQL_USER;Password=$MSSQL_PASSWORD;TrustServerCertificate=yes'
+    AS isales (TYPE mssql);
+
+LOAD '/path/to/odata.duckdb_extension';
+CALL odata_expose_schema('mdm.dbo');
+FROM odata_expose_schema('isales.dbo');
+FROM odata_serve();
+```
+
+`$MSSQL_*` values above are placeholders: DuckDB does **not** expand environment
+variables inside SQL string literals. Substitute them securely in your SQL
+client before executing, replace the extension path, and do not commit real
+credentials. Use a database account with only the required read permissions.
+`TrustServerCertificate=yes` skips server certificate validation; use a trusted
+certificate and remove that override for production. Check connector availability
+for your DuckDB version and platform before installing.
+
+Without changing the current catalog/schema, a table `mdm.dbo.customers`
+maps to `mdm_dbo_customers`, and `isales.dbo.orders` to `isales_dbo_orders`.
+`CALL` and `FROM` both execute these table functions and return their result
+rows. Both databases share the same OData endpoint; no data copy is needed.
+
+### Access the endpoint
+
+In either example, `odata_serve()` returns `listen_uri`, `listen_url` and
+`auth_token`. Copy `listen_url` and `auth_token` into a second terminal:
+
+```bash
+export ODATA_URL='http://localhost:54321'  # replace with listen_url
+export ODATA_TOKEN='REPLACE_WITH_AUTH_TOKEN'
+curl -H "Authorization: Bearer $ODATA_TOKEN" "$ODATA_URL/odata/"
+curl -H "Authorization: Bearer $ODATA_TOKEN" "$ODATA_URL/odata/\$metadata"
+# SQL Server example; use an entity name returned by odata_expose_schema:
+curl -H "Authorization: Bearer $ODATA_TOKEN" "$ODATA_URL/odata/mdm_dbo_customers?\$top=10"
+```
+
+Keep the DuckDB process and attached databases open while serving; do not use
+a one-shot CLI invocation that exits immediately after running the SQL.
+The examples retain localhost binding, automatic bearer auth and read-only
+OData requests. Exposing a whole schema publishes all its discovered tables
+and views; use `odata_expose` with a column allow-list for narrower access.
+Stop the server before detaching its data sources:
+
+```sql
+CALL odata_stop();
+```
+
+Connector references: [PostgreSQL](https://duckdb.org/docs/stable/core_extensions/postgres/overview.html)
+and [mssql](https://duckdb.org/community_extensions/extensions/mssql).
+
 ## Basic writes
 
 Set `read_only := false` in `odata_serve` to enable POST (201 + Location),
