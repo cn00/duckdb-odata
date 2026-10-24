@@ -1,0 +1,98 @@
+# name: test/sql/server.test
+# description: OData registration, exposure and server lifecycle
+# group: [sql]
+
+require odata
+
+query ITTII
+SELECT running, address, base_path, token_required, exposed_entities FROM odata_status();
+----
+false	(empty)	/odata	false	0
+
+statement ok
+CREATE TABLE customers (id BIGINT, name VARCHAR, secret VARCHAR);
+
+query TT
+SELECT * FROM odata_expose('customers', columns := ['id', 'name']);
+----
+customers	customers
+
+statement ok
+CALL odata_entity('customers', key := 'id');
+
+statement error
+CALL odata_expose('missing_table_xyz');
+----
+does not exist
+
+statement error
+CALL odata_expose('customers', columns := ['missing_column']);
+----
+does not exist
+
+statement ok
+CREATE SCHEMA exposed;
+
+query I
+SELECT count(*) FROM odata_expose_schema('exposed');
+----
+0
+
+statement ok
+CREATE TABLE exposed.a (id BIGINT);
+
+statement ok
+CREATE TABLE exposed.b (id BIGINT);
+
+query TT rowsort
+SELECT * FROM odata_expose_schema('exposed');
+----
+exposed_a	exposed.a
+exposed_b	exposed.b
+
+query I
+SELECT exposed_entities FROM odata_status();
+----
+3
+
+query III
+SELECT starts_with(listen_uri, 'odata:localhost'),
+       starts_with(listen_url, 'http://localhost:'),
+       regexp_full_match(auth_token, '[0-9A-F]{32}')
+FROM odata_serve();
+----
+true	true	true
+
+query ITII
+SELECT running, base_path, token_required, exposed_entities FROM odata_status();
+----
+true	/odata	true	3
+
+statement ok
+CALL odata_stop();
+
+query I
+SELECT running FROM odata_status();
+----
+false
+
+query I
+SELECT count(*) FROM odata_serve('http://127.0.0.1:0', token := '', base_path := '/custom', read_only := true);
+----
+1
+
+query ITI
+SELECT running, base_path, token_required FROM odata_status();
+----
+true	/custom	false
+
+statement ok
+CALL odata_stop();
+
+statement ok
+CALL odata_stop();
+
+query II
+SELECT running, exposed_entities FROM odata_status();
+----
+false	3

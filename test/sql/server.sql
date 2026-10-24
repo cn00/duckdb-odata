@@ -1,7 +1,7 @@
 -- duckdb-odata SQL-level smoke script (run against a duckdb CLI with the
 -- extension loaded, e.g.:  duckdb -unsigned < test/sql/server.sql)
 --
--- The sqllogictest flavor of these checks lives in the CI workflow; this file
+-- The sqllogictest flavor of these checks lives in server.test; this file
 -- is kept runnable by a plain CLI for quick manual verification.
 
 -- LOAD '/absolute/path/to/odata.duckdb_extension';
