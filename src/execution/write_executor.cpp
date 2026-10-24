@@ -6,7 +6,24 @@
 #include <set>
 
 namespace duckdb_odata {
-using namespace duckdb_yyjson;
+using duckdb_yyjson::unsafe_yyjson_get_first;
+using duckdb_yyjson::unsafe_yyjson_get_next;
+using duckdb_yyjson::yyjson_doc;
+using duckdb_yyjson::yyjson_doc_free;
+using duckdb_yyjson::yyjson_doc_get_root;
+using duckdb_yyjson::yyjson_get_bool;
+using duckdb_yyjson::yyjson_get_len;
+using duckdb_yyjson::yyjson_get_raw;
+using duckdb_yyjson::yyjson_get_str;
+using duckdb_yyjson::yyjson_is_bool;
+using duckdb_yyjson::yyjson_is_null;
+using duckdb_yyjson::yyjson_is_obj;
+using duckdb_yyjson::yyjson_is_raw;
+using duckdb_yyjson::yyjson_is_str;
+using duckdb_yyjson::yyjson_obj_size;
+using duckdb_yyjson::yyjson_read;
+using duckdb_yyjson::YYJSON_READ_NUMBER_AS_RAW;
+using duckdb_yyjson::yyjson_val;
 
 namespace {
 HttpResponse Error(int status, const std::string &message) {
@@ -22,7 +39,7 @@ std::string EncodePath(const std::string &text) {
 	std::string out;
 	for (unsigned char c : text) {
 		if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
-			out += c;
+			out += static_cast<char>(c);
 		} else {
 			out += '%';
 			out += hex[c >> 4];
@@ -52,24 +69,30 @@ HttpResponse ExecuteWrite(duckdb::Connection &con, const HttpRequest &request, c
                           const std::vector<std::string> &keys, const std::string &base_path) {
 	const bool insert = request.method == "POST";
 	const bool update = request.method == "PATCH";
-	if (!request.query.empty())
+	if (!request.query.empty()) {
 		return Error(400, "query options are not supported on writes");
-	if (request.HasHeader("If-Match") || request.HasHeader("If-None-Match"))
+	}
+	if (request.HasHeader("If-Match") || request.HasHeader("If-None-Match")) {
 		return Error(400, "conditional writes are not supported");
-	if ((insert && !keys.empty()) || (!insert && keys.size() != 1))
+	}
+	if ((insert && !keys.empty()) || (!insert && keys.size() != 1)) {
 		return Error(400, "POST requires a collection; PATCH and DELETE require one key");
+	}
 	const EdmProperty *key = nullptr;
 	for (auto &p : entity.properties) {
 		if (p.is_key) {
-			if (key)
+			if (key) {
 				return Error(400, "compound keys are not supported");
+			}
 			key = &p;
 		}
 	}
-	if (!key)
+	if (!key) {
 		return Error(400, "writes require an exposed key column");
-	if (!key->serializable || key->edm_type == EdmType::BINARY)
+	}
+	if (!key->serializable || key->edm_type == EdmType::BINARY) {
 		return Error(400, "unsupported key type for writes");
+	}
 	std::string table =
 	    QuoteIdentifier(entity.catalog) + "." + QuoteIdentifier(entity.schema) + "." + QuoteIdentifier(entity.table);
 	duckdb::vector<duckdb::Value> values;
@@ -77,43 +100,52 @@ HttpResponse ExecuteWrite(duckdb::Connection &con, const HttpRequest &request, c
 	if (insert || update) {
 		auto media =
 		    ToLower(Trim(request.GetHeader("Content-Type").substr(0, request.GetHeader("Content-Type").find(';'))));
-		if (media != "application/json")
+		if (media != "application/json") {
 			return Error(415, "Content-Type must be application/json");
+		}
 		std::unique_ptr<yyjson_doc, decltype(&yyjson_doc_free)> doc(
 		    yyjson_read(request.body.data(), request.body.size(), YYJSON_READ_NUMBER_AS_RAW), yyjson_doc_free);
-		if (!doc || !yyjson_is_obj(yyjson_doc_get_root(doc.get())))
+		if (!doc || !yyjson_is_obj(yyjson_doc_get_root(doc.get()))) {
 			return Error(400, "body must be a JSON object");
+		}
 		auto root = yyjson_doc_get_root(doc.get());
 		std::set<std::string> seen;
 		size_t i, max;
 		yyjson_val *name, *value;
 		yyjson_obj_foreach(root, i, max, name, value) {
 			std::string field(yyjson_get_str(name), yyjson_get_len(name));
-			if (!seen.insert(ToLower(field)).second)
+			if (!seen.insert(ToLower(field)).second) {
 				return Error(400, "duplicate property: " + field);
+			}
 			const EdmProperty *property = nullptr;
 			for (auto &p : entity.properties) {
-				if (ToLower(p.name) == ToLower(field))
+				if (ToLower(p.name) == ToLower(field)) {
 					property = &p;
+				}
 			}
-			if (!property)
+			if (!property) {
 				return Error(400, "unknown or hidden property: " + field);
-			if (!property->serializable || property->edm_type == EdmType::BINARY)
+			}
+			if (!property->serializable || property->edm_type == EdmType::BINARY) {
 				return Error(400, "unsupported write type: " + field);
-			if (update && property->is_key)
+			}
+			if (update && property->is_key) {
 				return Error(400, "PATCH cannot change the key");
+			}
 			duckdb::Value parameter;
 			if (yyjson_is_null(value)) {
-				if (!property->nullable || property->is_key)
+				if (!property->nullable || property->is_key) {
 					return Error(400, "null is not allowed: " + field);
-			} else if (yyjson_is_str(value))
+				}
+			} else if (yyjson_is_str(value)) {
 				parameter = duckdb::Value(std::string(yyjson_get_str(value), yyjson_get_len(value)));
-			else if (yyjson_is_raw(value))
+			} else if (yyjson_is_raw(value)) {
 				parameter = duckdb::Value(std::string(yyjson_get_raw(value), yyjson_get_len(value)));
-			else if (yyjson_is_bool(value))
+			} else if (yyjson_is_bool(value)) {
 				parameter = duckdb::Value::BOOLEAN(yyjson_get_bool(value));
-			else
+			} else {
 				return Error(400, "property must be a scalar: " + field);
+			}
 			if (!columns.empty()) {
 				columns += ",";
 				placeholders += ",";
@@ -125,17 +157,20 @@ HttpResponse ExecuteWrite(duckdb::Connection &con, const HttpRequest &request, c
 			assignments += QuoteIdentifier(property->name) + "=" + cast;
 			values.push_back(parameter);
 		}
-		if (update && values.empty())
+		if (update && values.empty()) {
 			return Error(400, "PATCH requires at least one property");
-	} else if (!request.body.empty())
+		}
+	} else if (!request.body.empty()) {
 		return Error(400, "DELETE must not contain a body");
+	}
 	std::string sql;
 	if (insert) {
 		sql = "INSERT INTO " + table;
-		if (values.empty())
+		if (values.empty()) {
 			sql += " DEFAULT VALUES";
-		else
+		} else {
 			sql += " (" + columns + ") VALUES (" + placeholders + ")";
+		}
 	} else {
 		std::string raw = keys[0];
 		if (raw.size() >= 2 && raw.front() == '\'' && raw.back() == '\'') {
@@ -143,8 +178,9 @@ HttpResponse ExecuteWrite(duckdb::Connection &con, const HttpRequest &request, c
 			std::string unescaped;
 			for (size_t i = 0; i < raw.size(); i++) {
 				unescaped += raw[i];
-				if (raw[i] == '\'' && i + 1 < raw.size() && raw[i + 1] == '\'')
+				if (raw[i] == '\'' && i + 1 < raw.size() && raw[i + 1] == '\'') {
 					i++;
+				}
 			}
 			raw = unescaped;
 		}
@@ -154,17 +190,20 @@ HttpResponse ExecuteWrite(duckdb::Connection &con, const HttpRequest &request, c
 	}
 	sql += " RETURNING ";
 	for (size_t i = 0; i < entity.properties.size(); i++) {
-		if (i)
+		if (i) {
 			sql += ",";
+		}
 		sql += QuoteIdentifier(entity.properties[i].name);
 	}
 	auto begin = con.Query("BEGIN TRANSACTION");
-	if (begin->HasError())
+	if (begin->HasError()) {
 		return Error(500, "could not start write transaction");
+	}
 	Transaction transaction(con);
 	auto prepared = con.Prepare(sql);
-	if (prepared->HasError())
+	if (prepared->HasError()) {
 		return Error(400, prepared->GetError());
+	}
 #if __has_include("duckdb/common/identifier.hpp")
 	auto result = prepared->Execute(values);
 #else
@@ -177,11 +216,13 @@ HttpResponse ExecuteWrite(duckdb::Connection &con, const HttpRequest &request, c
 		             result->GetError());
 	}
 	auto chunk = result->Fetch();
-	if (!chunk || !chunk->size())
+	if (!chunk || !chunk->size()) {
 		return Error(404, "entity with key not found");
+	}
 	auto extra = result->Fetch();
-	if (chunk->size() != 1 || (extra && extra->size()))
+	if (chunk->size() != 1 || (extra && extra->size())) {
 		return Error(409, "key is not unique; write rolled back");
+	}
 	HttpResponse response;
 	response.status = insert ? 201 : 204;
 	response.headers["OData-Version"] = "4.0";
@@ -189,18 +230,21 @@ HttpResponse ExecuteWrite(duckdb::Connection &con, const HttpRequest &request, c
 		response.headers["Content-Type"] = "application/json";
 		response.body = "{";
 		for (size_t i = 0; i < entity.properties.size(); i++) {
-			if (i)
+			if (i) {
 				response.body += ",";
+			}
 			auto value = chunk->GetValue(i, 0);
 			response.body += "\"" + JsonEscape(entity.properties[i].name) + "\":" + ValueToJson(value);
 			if (entity.properties[i].is_key) {
-				if (value.IsNull())
+				if (value.IsNull()) {
 					return Error(409, "inserted entity has a null key; write rolled back");
+				}
 				auto literal = value.ToString();
 				if (key->edm_type == EdmType::STRING || key->edm_type == EdmType::GUID ||
 				    key->edm_type == EdmType::DATE || key->edm_type == EdmType::TIME_OF_DAY ||
-				    key->edm_type == EdmType::DATETIME_OFFSET)
+				    key->edm_type == EdmType::DATETIME_OFFSET) {
 					literal = QuoteStringLiteral(literal);
+				}
 				response.headers["Location"] =
 				    base_path + "/" + EncodePath(entity.name) + "(" + EncodePath(literal) + ")";
 			}
@@ -208,8 +252,9 @@ HttpResponse ExecuteWrite(duckdb::Connection &con, const HttpRequest &request, c
 		response.body += "}";
 	}
 	auto commit = con.Query("COMMIT");
-	if (commit->HasError())
+	if (commit->HasError()) {
 		return Error(409, commit->GetError());
+	}
 	transaction.committed = true;
 	return response;
 }

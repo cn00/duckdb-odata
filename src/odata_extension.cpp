@@ -97,8 +97,9 @@ unique_ptr<FunctionData> ServeBind(ClientContext &context, TableFunctionBindInpu
 	result->db = context.db;
 	auto mode = input.named_parameters.find("read_only");
 	if (mode != input.named_parameters.end()) {
-		if (mode->second.IsNull())
+		if (mode->second.IsNull()) {
 			throw InvalidInputException("read_only cannot be NULL");
+		}
 		result->read_only = mode->second.GetValue<bool>();
 	}
 	if (!input.inputs.empty()) {

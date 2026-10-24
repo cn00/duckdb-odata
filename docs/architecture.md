@@ -155,6 +155,9 @@ CALL odata_serve();                     -- or pin address/token:
 
 The template Makefile delegates the standard build and SQL test targets to
 `extension-ci-tools`; `test-http` runs both HTTP integration suites.
+CI also runs `make format-check` and `make tidy-check` with DuckDB's shared
+rules. The empty root `vcpkg.json` is retained for the official distribution
+toolchain, even though OData has no additional vcpkg dependencies.
 
 The extension supports the pinned DuckDB v2.0.0 API and retains v1.5.5
 source compatibility. CI builds only the stable version configured in the

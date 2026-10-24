@@ -182,10 +182,11 @@ Route ParseRoute(const ODataServerState &state, const std::string &full_path) {
 		bool quoted = false;
 		for (size_t j = i + 1; j < remaining.size(); j++) {
 			if (remaining[j] == '\'') {
-				if (quoted && j + 1 < remaining.size() && remaining[j + 1] == '\'')
+				if (quoted && j + 1 < remaining.size() && remaining[j + 1] == '\'') {
 					j++;
-				else
+				} else {
 					quoted = !quoted;
+				}
 			} else if (!quoted && remaining[j] == ')') {
 				close = j;
 				break;
@@ -344,14 +345,17 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 		if (!state.token.empty() && !CheckBearerToken(request.GetHeader("Authorization"), state.token)) {
 			return MakeError(401, "Unauthorized", "missing or invalid bearer token");
 		}
-		if (request.method != "GET" && (!writing || state.read_only))
+		if (request.method != "GET" && (!writing || state.read_only)) {
 			return MakeError(405, "MethodNotAllowed", "write method disabled or unsupported");
+		}
 	}
 	auto route = ParseRoute(state, request.path);
-	if (writing && (route.health || route.service_doc || route.metadata || route.entity.empty()))
+	if (writing && (route.health || route.service_doc || route.metadata || route.entity.empty())) {
 		return MakeError(405, "MethodNotAllowed", "writes require an entity resource");
-	if (writing && route.invalid_key)
+	}
+	if (writing && route.invalid_key) {
 		return MakeError(400, "InvalidKey", "invalid key route");
+	}
 	if (route.health) {
 		return MakeJson(200, "{\"status\":\"ok\"}");
 	}
@@ -489,8 +493,9 @@ HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &requ
 	}
 
 	// server-side top cap (design doc section 21)
-	if (writing)
+	if (writing) {
 		return ExecuteWrite(con, request, entity, route.keys, state.base_path);
+	}
 	const int64_t odata_max_top = state.max_top;
 	// key lookup
 	if (!route.keys.empty()) {

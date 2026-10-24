@@ -41,8 +41,9 @@ std::string KeyLiteralSql(const EdmProperty &prop, const std::string &raw_value)
 		std::string decoded;
 		for (size_t i = 0; i < value.size(); i++) {
 			decoded += value[i];
-			if (value[i] == '\'' && i + 1 < value.size() && value[i + 1] == '\'')
+			if (value[i] == '\'' && i + 1 < value.size() && value[i + 1] == '\'') {
 				i++;
+			}
 		}
 		value = std::move(decoded);
 	}

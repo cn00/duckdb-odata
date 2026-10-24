@@ -30,8 +30,9 @@ bool ReadRequestHead(int fd, std::string &head, std::string &body) {
 		buffer.append(chunk, static_cast<size_t>(n));
 		auto pos = buffer.find("\r\n\r\n");
 		if (pos != std::string::npos) {
-			if (pos > (1 << 16))
+			if (pos > (1 << 16)) {
 				return false;
+			}
 			head = buffer.substr(0, pos + 4);
 			body = buffer.substr(pos + 4);
 			return true;
@@ -154,8 +155,9 @@ void SocketHttpServer::HandleConnection(int client_fd) {
 				size_t length = 0;
 				bool valid = !request.HasHeader("Transfer-Encoding");
 				auto raw_length = request.GetHeader("Content-Length");
-				if (request.HasHeader("Content-Length") && raw_length.empty())
+				if (request.HasHeader("Content-Length") && raw_length.empty()) {
 					valid = false;
+				}
 				for (char c : raw_length) {
 					if (c < '0' || c > '9' || length > 1048576) {
 						valid = false;
@@ -224,14 +226,16 @@ void SocketHttpServer::HandleConnection(int client_fd) {
 		shutdown(client_fd, SHUT_WR);
 		auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 		size_t drained = 0;
-		while (drained < 8 * 1048576 && std::chrono::steady_clock::now() < deadline) {
+		while (drained < size_t(8) * 1048576 && std::chrono::steady_clock::now() < deadline) {
 			pollfd pending {client_fd, POLLIN, 0};
-			if (poll(&pending, 1, 100) <= 0)
+			if (poll(&pending, 1, 100) <= 0) {
 				break;
+			}
 			char discard[8192];
 			auto n = recv(client_fd, discard, sizeof(discard), MSG_DONTWAIT);
-			if (n <= 0)
+			if (n <= 0) {
 				break;
+			}
 			drained += static_cast<size_t>(n);
 		}
 	}
