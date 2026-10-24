@@ -37,6 +37,11 @@ build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 target_link_libraries(${EXTENSION_NAME} duckdb_yyjson)
 target_link_libraries(${LOADABLE_EXTENSION_NAME} duckdb_yyjson)
 
+if(WIN32)
+  target_link_libraries(${EXTENSION_NAME} ws2_32)
+  target_link_libraries(${LOADABLE_EXTENSION_NAME} ws2_32)
+endif()
+
 install(
   TARGETS ${EXTENSION_NAME}
   EXPORT "${DUCKDB_EXPORT_SET}"
