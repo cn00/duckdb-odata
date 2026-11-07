@@ -63,9 +63,12 @@ least 2 GiB of memory, and a 60-second timeout. The image configures:
 Set `ODATA_TOKEN` from AWS Secrets Manager. Do not put it in the image,
 Dockerfile, or initialization SQL.
 
-For production, push the image to Amazon ECR in the target Region and expose
-it through a Function URL with `AWS_IAM` authorization or API Gateway HTTP
-API. The Lambda service cannot directly deploy the GHCR image.
+Version releases publish the Linux amd64 Lambda image to GitHub Container
+Registry as `ghcr.io/cn00/duckdb-odata-lambda:v<version>` and
+`ghcr.io/cn00/duckdb-odata-lambda:latest`. For production, publish the image
+to Amazon ECR in the target Region and expose it through a Function URL with
+`AWS_IAM` authorization or API Gateway HTTP API. The Lambda service cannot
+directly deploy a GHCR image.
 
 Lambda does not accept a Buildx multi-platform image index or an image index
 that includes provenance attestations. Use the included publisher to build one
@@ -82,7 +85,8 @@ export ECR_REPOSITORY=duckdb-odata
 The script requires configured AWS credentials with access to ECR. It prints
 the image URI only after verifying the pushed manifest type. Use the printed
 `lambda-v0.1.1` image URI when creating the Lambda function; do not use the
-multi-architecture GHCR image or an ECR tag produced with Buildx `--push`.
+regular multi-architecture `duckdb-odata` GHCR image or an ECR tag produced
+with Buildx `--push`.
 
 ## CloudWatch logs
 
