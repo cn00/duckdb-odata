@@ -29,17 +29,16 @@ COPY container-assets/odata-${ODATA_VERSION}-linux_${TARGETARCH}.duckdb_extensio
 COPY docker/entrypoint.lambda.sh /usr/local/bin/duckdb-odata-lambda
 COPY docker/init.lambda.sql /opt/duckdb-odata/init.sql
 
-RUN duckdb_version="${DUCKDB_VERSION#v}" \
-    && duckdb -unsigned -c "INSTALL httpfs; INSTALL aws; INSTALL postgres_scanner;" \
+RUN duckdb -unsigned -c "INSTALL httpfs; INSTALL aws; INSTALL postgres_scanner;" \
     && install -d -m 755 /opt/duckdb/extensions \
     && install -m 644 \
-        "/root/.duckdb/extensions/v${duckdb_version}/linux_${TARGETARCH}/httpfs.duckdb_extension" \
+        "/root/.duckdb/extensions/${DUCKDB_VERSION}/linux_${TARGETARCH}/httpfs.duckdb_extension" \
         /opt/duckdb/extensions/httpfs.duckdb_extension \
     && install -m 644 \
-        "/root/.duckdb/extensions/v${duckdb_version}/linux_${TARGETARCH}/aws.duckdb_extension" \
+        "/root/.duckdb/extensions/${DUCKDB_VERSION}/linux_${TARGETARCH}/aws.duckdb_extension" \
         /opt/duckdb/extensions/aws.duckdb_extension \
     && install -m 644 \
-        "/root/.duckdb/extensions/v${duckdb_version}/linux_${TARGETARCH}/postgres_scanner.duckdb_extension" \
+        "/root/.duckdb/extensions/${DUCKDB_VERSION}/linux_${TARGETARCH}/postgres_scanner.duckdb_extension" \
         /opt/duckdb/extensions/postgres_scanner.duckdb_extension \
     && rm -rf /root/.duckdb
 
