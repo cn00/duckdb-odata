@@ -1,8 +1,9 @@
 # Testing duckdb-odata
 
-`sql/server.test` is the DuckDB SQLLogicTest discovered by the official CI
-runner. It requires the OData extension and checks registration, empty and
-multi-row schema exposure, named parameters, and the server lifecycle.
+`sql/server.test` and `sql/parser_compiler.test` are DuckDB SQLLogicTests
+discovered by the official CI runner. They require the OData extension and
+cover registration, schema exposure, lifecycle behavior, filter parsing and
+SQL compilation without starting an HTTP server.
 `sql/server.sql` is a separate CLI-only smoke script, not a SQLLogicTest.
 `http/` contains Python end-to-end tests for the OData HTTP API and writes.
 The HTTP server uses Winsock on Windows and POSIX sockets on other native

@@ -1,0 +1,30 @@
+# name: test/sql/parser_compiler.test
+# description: OData filter parser and SQL compiler
+# group: [sql]
+
+require odata
+
+query T
+SELECT __internal_odata_compile_filter('');
+----
+SELECT "id", "name", "active", "amount" FROM "memory"."main"."items"
+
+query T
+SELECT __internal_odata_compile_filter('active eq true and amount ge ''12.50''');
+----
+SELECT "id", "name", "active", "amount" FROM "memory"."main"."items" WHERE ("active" = TRUE AND "amount" >= CAST('12.50' AS DECIMAL(18,2)))
+
+query T
+SELECT __internal_odata_compile_filter('contains(name,''O''''Brien'')');
+----
+SELECT "id", "name", "active", "amount" FROM "memory"."main"."items" WHERE contains("name", 'O''Brien')
+
+statement error
+SELECT __internal_odata_compile_filter('unknown eq 1');
+----
+does not exist on entity
+
+statement error
+SELECT __internal_odata_compile_filter('name eq ''unterminated');
+----
+Unterminated string literal

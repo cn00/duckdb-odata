@@ -3,7 +3,9 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
 #include "duckdb/common/types/value.hpp"
+#include "duckdb/common/vector_operations/unary_executor.hpp"
 #include "duckdb/function/function_set.hpp"
+#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/config.hpp"
@@ -13,6 +15,7 @@
 
 #include "common/string_util.hpp"
 #include "auth/auth.hpp"
+#include "compiler/sql_compiler.hpp"
 #include "metadata/metadata_generator.hpp"
 #include "parser/odata_parser.hpp"
 #include "server/odata_server.hpp"
@@ -55,6 +58,36 @@ void SetOutputCardinality(DataChunk &output, idx_t count) {
 #else
 	output.SetCardinality(count);
 #endif
+}
+
+duckdb_odata::EdmEntity ParserCompilerTestEntity() {
+	duckdb_odata::EdmEntity entity;
+	entity.name = "items";
+	entity.catalog = "memory";
+	entity.schema = "main";
+	entity.table = "items";
+	entity.has_key = true;
+	entity.properties = {
+	    {"id", duckdb_odata::EdmType::INT64, false, true, "BIGINT", true},
+	    {"name", duckdb_odata::EdmType::STRING, false, false, "VARCHAR", true},
+	    {"active", duckdb_odata::EdmType::BOOLEAN, false, false, "BOOLEAN", true},
+	    {"amount", duckdb_odata::EdmType::DECIMAL, true, false, "DECIMAL(18,2)", true},
+	};
+	return entity;
+}
+
+// Internal test seam: SQLLogicTests exercise parsing and SQL compilation without
+// starting an HTTP server or querying a catalog.
+void InternalCompileFilter(DataChunk &args, ExpressionState &, Vector &result) {
+	auto entity = ParserCompilerTestEntity();
+	UnaryExecutor::Execute<string_t, string_t>(args.data[0], result, [&](string_t filter) {
+		duckdb_odata::ODataQuery query;
+		auto text = std::string(filter.GetData(), filter.GetSize());
+		if (!text.empty()) {
+			query.filter = duckdb_odata::ParseFilter(text);
+		}
+		return StringVector::AddString(result, duckdb_odata::SqlCompiler().CompileCollection(query, entity, 100).sql);
+	});
 }
 
 enum class ODataActionKind { STOP, ENTITY };
@@ -559,6 +592,9 @@ void LoadInternal(ExtensionLoader &loader) {
 
 	TableFunction status("odata_status", {}, StatusExecute, StatusBind, StatusInit);
 	loader.RegisterFunction(status);
+
+	loader.RegisterFunction(ScalarFunction("__internal_odata_compile_filter", {LogicalType::VARCHAR},
+	                                       LogicalType::VARCHAR, InternalCompileFilter));
 }
 
 } // namespace
