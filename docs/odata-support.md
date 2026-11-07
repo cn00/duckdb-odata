@@ -95,9 +95,9 @@ DuckDB → EDM mapping (see `src/metadata/edm_model.*`):
   resolve in the current schema, or in the single schema that owns the table;
   if the same table name exists in several schemas, `odata_expose` raises an
   ambiguity error asking for `schema.table`.
-- `CALL odata_expose_schema('sales')` exposes every base table of that schema
-  in the current catalog (public names stay bare; schema is retained for
-  resolution).
+- `CALL odata_expose_schema('sales')` exposes every base table and view of
+  that schema in the current catalog (public names stay bare; schema is
+  retained for resolution).
 - Exposed table names are matched case-insensitively; responses echo the
   catalog's canonical casing.
 - JSON follows OData v4 minimal metadata: `@odata.context`,

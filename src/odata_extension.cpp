@@ -219,9 +219,9 @@ unique_ptr<FunctionData> StopBind(ClientContext &context, TableFunctionBindInput
 	return CommonBind(context, ODataActionKind::STOP, input, return_types, names);
 }
 
-// odata_expose / odata_expose_schema: whitelist one table (or every table of
-// one schema) and report back one row per exposed entity with the public
-// entity-set name and the DuckDB table reference.
+// odata_expose / odata_expose_schema: whitelist one table or every table and
+// view in one schema, then report one row per exposed entity with the public
+// entity-set name and the DuckDB object reference.
 struct ODataExposeData : public TableFunctionData {
 	std::string arg; // odata_expose: "t" / "s.t" / "db.s.t";
 	                 // odata_expose_schema: "s" / "db.s"
@@ -379,9 +379,11 @@ void ExposeSchemaExecute(ClientContext &context, TableFunctionInput &data_p, Dat
 	duckdb::Connection con(*d.db);
 	std::string catalog_scope =
 	    catalog_arg.empty() ? "current_catalog()" : duckdb_odata::QuoteStringLiteral(catalog_arg);
-	auto res = con.Query("SELECT table_name, database_name FROM duckdb_tables() WHERE schema_name = " +
-	                     duckdb_odata::QuoteStringLiteral(schema) +
-	                     " AND NOT internal AND NOT temporary AND database_name = " + catalog_scope);
+	auto object_filter = " WHERE schema_name = " + duckdb_odata::QuoteStringLiteral(schema) +
+	                     " AND NOT internal AND NOT temporary AND database_name = " + catalog_scope;
+	auto res = con.Query("SELECT table_name AS object_name, database_name FROM duckdb_tables()" + object_filter +
+	                     " UNION ALL SELECT view_name AS object_name, database_name FROM duckdb_views()" +
+	                     object_filter);
 	if (res->HasError()) {
 		throw InvalidInputException("odata_expose_schema failed: %s", res->GetError());
 	}

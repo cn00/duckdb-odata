@@ -71,7 +71,7 @@ Registered by `src/odata_extension.cpp` (see `ODataExtension::Load`):
 | `CALL odata_stop()` | stop the server for this instance |
 | `SELECT * FROM odata_status()` | server/registry state |
 | `CALL odata_expose('customers', columns := ['id', 'name'])` | whitelist a table as an entity set and optionally restrict its public columns (`'s1.customers'` / `'db1.s1.customers'` also accepted); returns one `(entity, table)` row |
-| `CALL odata_expose_schema('main')` | whitelist every base table of a schema; `'db1.main'` exposes a schema of an attached catalog; returns a `(entity, table)` row per table |
+| `CALL odata_expose_schema('main')` | whitelist every base table and view of a schema; `'db1.main'` exposes a schema of an attached catalog; returns a `(entity, table)` row per object |
 | `CALL odata_entity('customers', key := 'id')` | configure entity key columns |
 
 Entity-set naming is relative to the calling scope: a table in the current

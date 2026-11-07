@@ -44,16 +44,20 @@ CREATE TABLE exposed.a (id BIGINT);
 statement ok
 CREATE TABLE exposed.b (id BIGINT);
 
+statement ok
+CREATE VIEW exposed.v AS SELECT * FROM exposed.a;
+
 query TT rowsort
 SELECT * FROM odata_expose_schema('exposed');
 ----
 exposed_a	exposed.a
 exposed_b	exposed.b
+exposed_v	exposed.v
 
 query I
 SELECT exposed_entities FROM odata_status();
 ----
-3
+4
 
 query III
 SELECT starts_with(listen_uri, 'odata:localhost'),
@@ -66,7 +70,7 @@ true	true	true
 query ITII
 SELECT running, base_path, token_required, exposed_entities FROM odata_status();
 ----
-true	/odata	true	3
+true	/odata	true	4
 
 statement ok
 CALL odata_stop();
@@ -95,4 +99,4 @@ CALL odata_stop();
 query II
 SELECT running, exposed_entities FROM odata_status();
 ----
-false	3
+false	4
