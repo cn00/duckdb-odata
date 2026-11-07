@@ -13,16 +13,15 @@ Architecture: [docs/architecture.md](docs/architecture.md)
 DuckDB ── odata extension ──► HTTP / OData v4 ──► BI / ERP / Power BI / Excel / REST clients
 ```
 
-## Quick start (v0.2)
+## Quick start (v0.1)
 
 ```sql
 INSTALL odata;
 LOAD odata;
 
 CREATE TABLE customers (id BIGINT, name VARCHAR, active BOOLEAN);
-CALL odata_expose('customers', columns := ['id', 'name', 'active']);
+CALL odata_expose('customers');
 CALL odata_entity('customers', key := 'id');
-SET odata_page_size = 500;
 CALL odata_serve('http://0.0.0.0:8080', token := 'secret');
 ```
 
