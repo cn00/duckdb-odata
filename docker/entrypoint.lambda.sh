@@ -58,7 +58,7 @@ trap cleanup EXIT HUP INT TERM
 
 {
     printf "LOAD '/opt/duckdb-odata/odata.duckdb_extension';\n"
-    printf "LOAD httpfs;\n"
+    printf "LOAD '/opt/duckdb/extensions/httpfs.duckdb_extension';\n"
     cat "${init_sql_file}"
     printf "\n.output /dev/null\n"
     printf "CALL odata_serve('http://0.0.0.0:%s', token := '%s');\n" "${port}" "${escaped_token}"

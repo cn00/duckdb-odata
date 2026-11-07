@@ -23,7 +23,12 @@ RUN case "${TARGETARCH}" in \
     && rm /tmp/duckdb.tar.gz \
     && chmod +x /usr/local/bin/duckdb
 
-RUN duckdb -unsigned -c "INSTALL httpfs"
+RUN duckdb -unsigned -c "INSTALL httpfs" \
+    && install -d -m 755 /opt/duckdb/extensions \
+    && install -m 644 \
+        "/root/.duckdb/extensions/v${DUCKDB_VERSION}/linux_${TARGETARCH}/httpfs.duckdb_extension" \
+        /opt/duckdb/extensions/httpfs.duckdb_extension \
+    && rm -rf /root/.duckdb
 
 COPY --from=lambda_adapter /lambda-adapter /opt/extensions/lambda-adapter
 COPY container-assets/odata-${ODATA_VERSION}-linux_${TARGETARCH}.duckdb_extension \

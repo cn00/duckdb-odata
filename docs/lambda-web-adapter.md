@@ -109,9 +109,14 @@ credentials in the SQL; use the Lambda execution role and Secrets Manager.
 Production read paths should expose S3-backed files, a read-only RDS/Aurora
 catalog, or an EFS-backed DuckDB file.
 
-The Lambda image preinstalls and loads DuckDB `httpfs`. Give the Lambda
-execution role only the required `s3:ListBucket` and `s3:GetObject` permissions,
-then use DuckDB's credential chain rather than embedding AWS keys:
+The Lambda image preinstalls DuckDB `httpfs` in
+`/opt/duckdb/extensions` and loads it from that shared, read-only path at
+startup. This avoids dependence on the home directory of the Lambda runtime
+user. Do not set `extension_directory` or `extension_directories`, and do not
+run a second `LOAD httpfs` in `ODATA_INIT_SQL`; the entrypoint loads the fixed
+extension before executing the initialization SQL. Give the Lambda execution
+role only the required `s3:ListBucket` and `s3:GetObject` permissions, then
+use DuckDB's credential chain rather than embedding AWS keys:
 
 ```sql
 CREATE OR REPLACE SECRET lambda_s3 (
