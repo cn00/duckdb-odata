@@ -20,14 +20,14 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
     with:
-      duckdb_version: ${{ env.DUCKDB_VERSION }}
+      duckdb_version: v2.0.0
       ci_tools_version: v2.0-cyanoptera
       extension_name: odata
   duckdb-v1-build:
-    name: Build extension binaries (${{ env.DUCKDB_VERSION_1 }})
+    name: Build extension binaries (v1.5.6)
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
     with:
-      duckdb_version: ${{ env.DUCKDB_VERSION_1 }}
+      duckdb_version: v1.5.6
       ci_tools_version: v2.0-cyanoptera
       extension_name: odata
 
@@ -35,7 +35,7 @@ jobs:
     name: Code Quality Check
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v2.0-cyanoptera
     with:
-      duckdb_version: ${{ env.DUCKDB_VERSION }}
+      duckdb_version: v2.0.0
       ci_tools_version: v2.0-cyanoptera
       extension_name: odata
       format_checks: 'format;tidy'
