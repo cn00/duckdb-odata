@@ -4,11 +4,34 @@ services:
     environment:
       ODATA_TOKEN: ${ODATA_TOKEN:?Set ODATA_TOKEN before starting the service}
       ODATA_DATABASE: /data/odata.duckdb
+      DUCKDB_UI_PORT: 4213
+      DUCKDB_UI_PROXY_PORT: 4214
     ports:
       - "127.0.0.1:8080:8080"
+      - "127.0.0.1:4213:4214"
     volumes:
       - odata-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: odata_demo
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../docker/postgres-init.sql:/docker-entrypoint-initdb.d/postgres-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d odata_demo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
 volumes:
   odata-data:
+  postgres-data:

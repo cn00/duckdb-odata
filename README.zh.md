@@ -191,8 +191,14 @@ curl -H "Authorization: Bearer $ODATA_TOKEN" \
   http://localhost:8080/odata/customers
 ```
 
-Compose 默认拉取 `ghcr.io/cn00/duckdb-odata:latest`，将 DuckDB 数据库持久化到
-`odata-data` volume，并且仅绑定到 `127.0.0.1`。设置
+Compose 默认拉取 `ghcr.io/cn00/duckdb-odata:latest`，同时启动一个
+`postgres:16-alpine` 演示数据库，并将其中的 `products` 表暴露为
+`pg_public_products`。两份数据库均持久化到命名 volume，服务仅绑定
+`127.0.0.1`。
+
+通过 <http://localhost:4213> 可使用官方 DuckDB UI；它可查看 OData 的 DuckDB
+数据库并查询已 ATTACH 的 PostgreSQL 演示库。UI 可以执行任意 SQL，因此刻意不公开
+绑定端口，只应在本地开发时使用。设置
 `ODATA_IMAGE=ghcr.io/cn00/duckdb-odata:<tag>` 可固定已发布版本。需要初始化自有数据库时，
 请挂载 SQL 文件并将 `ODATA_INIT_SQL` 指向该文件；该文件需要建表并调用暴露 API，
 容器负责加载扩展和启动服务。请将 GHCR package 设为公开，才能支持匿名拉取。
