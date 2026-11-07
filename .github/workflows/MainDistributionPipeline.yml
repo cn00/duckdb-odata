@@ -7,6 +7,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  DUCKDB_VERSION: v2.0.0
+  DUCKDB_VERSION_1: v1.5.6
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: true
@@ -16,7 +20,14 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
     with:
-      duckdb_version: v2.0.0
+      duckdb_version: ${{ env.DUCKDB_VERSION }}
+      ci_tools_version: v2.0-cyanoptera
+      extension_name: odata
+  duckdb-v1-build:
+    name: Build extension binaries (${{ env.DUCKDB_VERSION_1 }})
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
+    with:
+      duckdb_version: ${{ env.DUCKDB_VERSION_1 }}
       ci_tools_version: v2.0-cyanoptera
       extension_name: odata
 
@@ -24,7 +35,7 @@ jobs:
     name: Code Quality Check
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v2.0-cyanoptera
     with:
-      duckdb_version: v2.0.0
+      duckdb_version: ${{ env.DUCKDB_VERSION }}
       ci_tools_version: v2.0-cyanoptera
       extension_name: odata
       format_checks: 'format;tidy'
@@ -32,7 +43,7 @@ jobs:
   release:
     name: Release (${{ github.ref_name }})
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: duckdb-stable-build
+    needs: [duckdb-stable-build, duckdb-v1-build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -59,13 +70,15 @@ jobs:
           for directory in "${artifacts[@]}"; do
             artifact="${directory%/}"
             platform="${artifact#*-extension-}"
+            duckdb_version="${artifact#odata-}"
+            duckdb_version="${duckdb_version%%-extension-*}"
             binaries=("$directory"odata.duckdb_extension*)
             if ((${#binaries[@]} != 1)); then
               echo "::error::Expected exactly one odata extension in ${artifact}"
               exit 1
             fi
             suffix="${binaries[0]#"$directory"odata}"
-            asset="odata-${RELEASE_TAG}-${platform}${suffix}"
+            asset="duckdb-${duckdb_version}-odata-${RELEASE_TAG}-${platform}${suffix}"
             cp "${binaries[0]}" "$asset"
             gzip -9 "$asset"
             assets+=("${asset}.gz")
@@ -81,7 +94,7 @@ jobs:
         run: |
           set -euo pipefail
           cd release-assets
-          assets=(odata-*.duckdb_extension*)
+          assets=(duckdb-*-odata-*.duckdb_extension*)
           notes="${RUNNER_TEMP}/release-notes.md"
           {
             echo "# duckdb-odata ${RELEASE_TAG}"
@@ -106,7 +119,7 @@ jobs:
           fi
 
       - name: Show release assets
-        run: ls -la release-assets/odata-*.duckdb_extension* release-assets/sha256sums.txt
+        run: ls -la release-assets/duckdb-*-odata-*.duckdb_extension* release-assets/sha256sums.txt
 
   container:
     name: Publish GHCR image (${{ github.ref_name }})
@@ -122,7 +135,7 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           path: release-assets
-          pattern: odata-*-extension-*
+          pattern: odata-${{ env.DUCKDB_VERSION }}-extension-*
 
       - name: Stage container extensions
         shell: bash
@@ -132,7 +145,7 @@ jobs:
           set -euo pipefail
           mkdir container-assets
           shopt -s nullglob
-          artifacts=(release-assets/odata-*-extension-*/)
+          artifacts=(release-assets/odata-${{ env.DUCKDB_VERSION }}-extension-*/)
           if ((${#artifacts[@]} == 0)); then
             echo "::error::No OData distribution artifacts were downloaded"
             exit 1
@@ -171,12 +184,13 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            DUCKDB_VERSION=2.0.0
+            DUCKDB_VERSION=${{ env.DUCKDB_VERSION }}
             ODATA_VERSION=${{ github.ref_name }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/duckdb-odata:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/duckdb-odata:latest
 
+  # only stable releases
   lambda-container:
     name: Publish Lambda image to GHCR (${{ github.ref_name }})
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -191,7 +205,7 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           path: release-assets
-          pattern: odata-*-extension-*
+          pattern: odata-${{ env.DUCKDB_VERSION }}-extension-*
 
       - name: Stage Lambda extension
         shell: bash
@@ -201,7 +215,7 @@ jobs:
           set -euo pipefail
           mkdir container-assets
           shopt -s nullglob
-          artifacts=(release-assets/odata-*-extension-linux_amd64/)
+          artifacts=(release-assets/odata-${{ env.DUCKDB_VERSION }}-extension-linux_amd64/)
           if ((${#artifacts[@]} != 1)); then
             echo "::error::Expected one Linux amd64 OData distribution artifact"
             exit 1
@@ -232,7 +246,7 @@ jobs:
           provenance: false
           sbom: false
           build-args: |
-            DUCKDB_VERSION=2.0.0
+            DUCKDB_VERSION=${{ env.DUCKDB_VERSION }}
             ODATA_VERSION=${{ github.ref_name }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/duckdb-odata-lambda:${{ github.ref_name }}
