@@ -15,8 +15,12 @@ Stage a matching Linux extension artifact under its OData release tag:
 
 ```bash
 mkdir -p container-assets
-cp odata-v0.1.1-linux_amd64.duckdb_extension \
-  container-assets/odata-v0.1.1-linux_amd64.duckdb_extension
+gh release download v0.1.1 \
+  --repo cn00/duckdb-odata \
+  --pattern 'odata-v0.1.1-linux_amd64.duckdb_extension.gz' \
+  --dir container-assets
+gzip -dc container-assets/odata-v0.1.1-linux_amd64.duckdb_extension.gz \
+  > container-assets/odata-v0.1.1-linux_amd64.duckdb_extension
 
 docker buildx build --platform linux/amd64 --load \
   --build-arg BASE_IMAGE=public.ecr.aws/ubuntu/ubuntu:latest \
@@ -62,6 +66,23 @@ Dockerfile, or initialization SQL.
 For production, push the image to Amazon ECR in the target Region and expose
 it through a Function URL with `AWS_IAM` authorization or API Gateway HTTP
 API. The Lambda service cannot directly deploy the GHCR image.
+
+Lambda does not accept a Buildx multi-platform image index or an image index
+that includes provenance attestations. Use the included publisher to build one
+`linux/amd64` image, disable provenance and SBOM attestations, then push a
+single Docker schema2 manifest:
+
+```bash
+export ODATA_VERSION=v0.1.1
+export AWS_REGION=us-east-1
+export ECR_REPOSITORY=duckdb-odata
+./docker/push-lambda-ecr.sh
+```
+
+The script requires configured AWS credentials with access to ECR. It prints
+the image URI only after verifying the pushed manifest type. Use the printed
+`lambda-v0.1.1` image URI when creating the Lambda function; do not use the
+multi-architecture GHCR image or an ECR tag produced with Buildx `--push`.
 
 ## Data sources and writes
 
