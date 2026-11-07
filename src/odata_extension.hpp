@@ -28,4 +28,6 @@ public:
 	std::string Version() const override;
 };
 
+using OdataExtension = ODataExtension;
+
 } // namespace duckdb
