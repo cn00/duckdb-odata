@@ -1,0 +1,46 @@
+ARG LAMBDA_ADAPTER_VERSION=1.1.0
+ARG BASE_IMAGE=public.ecr.aws/ubuntu/ubuntu:latest
+FROM public.ecr.aws/awsguru/aws-lambda-adapter:${LAMBDA_ADAPTER_VERSION} AS lambda_adapter
+
+FROM ${BASE_IMAGE}
+
+ARG DUCKDB_VERSION
+ARG ODATA_VERSION
+ARG TARGETARCH
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl tar \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN case "${TARGETARCH}" in \
+        amd64|arm64) cli_arch="${TARGETARCH}" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl --fail --location --silent --show-error \
+        "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/duckdb-cli-linux-${cli_arch}.tar.gz" \
+        --output /tmp/duckdb.tar.gz \
+    && tar -xzf /tmp/duckdb.tar.gz -C /usr/local/bin duckdb \
+    && rm /tmp/duckdb.tar.gz \
+    && chmod +x /usr/local/bin/duckdb
+
+COPY --from=lambda_adapter /lambda-adapter /opt/extensions/lambda-adapter
+COPY container-assets/odata-${ODATA_VERSION}-linux_${TARGETARCH}.duckdb_extension \
+    /opt/duckdb-odata/odata.duckdb_extension
+COPY docker/entrypoint.lambda.sh /usr/local/bin/duckdb-odata-lambda
+COPY docker/init.lambda.sql /opt/duckdb-odata/init.sql
+
+RUN chmod +x /usr/local/bin/duckdb-odata-lambda
+
+ENV ODATA_DATABASE=/tmp/odata.duckdb
+ENV ODATA_PORT=8080
+ENV AWS_LWA_PORT=8080
+ENV AWS_LWA_READINESS_CHECK_PORT=8080
+ENV AWS_LWA_READINESS_CHECK_PATH=/health
+ENV AWS_LWA_READINESS_CHECK_PROTOCOL=http
+ENV AWS_LWA_READINESS_CHECK_TIMEOUT_SECONDS=60
+ENV AWS_LWA_INVOKE_MODE=buffered
+ENV AWS_LWA_ERROR_STATUS_CODES=500,502-504
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/duckdb-odata-lambda"]

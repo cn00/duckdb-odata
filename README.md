@@ -219,6 +219,10 @@ path; it must create/expose entities, while the container loads the extension
 and starts the server. Keep GHCR package visibility public for anonymous
 pulls.
 
+For a serverless, read-heavy deployment, see the
+[AWS Lambda Web Adapter guide](docs/lambda-web-adapter.md). It uses a separate
+image without DuckDB UI or the Compose PostgreSQL demo.
+
 ## Building
 
 Initialize the official DuckDB extension-template submodules, then use its

@@ -204,6 +204,10 @@ Compose 默认拉取 `ghcr.io/cn00/duckdb-odata:latest`，同时启动一个
 请挂载 SQL 文件并将 `ODATA_INIT_SQL` 指向该文件；该文件需要建表并调用暴露 API，
 容器负责加载扩展和启动服务。请将 GHCR package 设为公开，才能支持匿名拉取。
 
+如需面向只读、高读取量场景的 serverless 部署，请参阅
+[AWS Lambda Web Adapter 指南](docs/lambda-web-adapter.md)。该方案使用独立镜像，
+不会启动 DuckDB UI 或 Compose PostgreSQL 演示服务。
+
 ## 构建
 
 先初始化官方 DuckDB 扩展模板所需的 submodule，再使用标准 Makefile：
