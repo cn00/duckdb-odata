@@ -338,7 +338,8 @@ void StopODataServer(ODataServerState &state) {
 }
 
 HttpResponse HandleODataRequest(ODataServerState &state, const HttpRequest &request) {
-	const bool writing = request.method == "POST" || request.method == "PATCH" || request.method == "DELETE";
+	const bool writing =
+	    request.method == "POST" || request.method == "PATCH" || request.method == "PUT" || request.method == "DELETE";
 	// auth
 	{
 		std::lock_guard<std::mutex> lock(state.mu);

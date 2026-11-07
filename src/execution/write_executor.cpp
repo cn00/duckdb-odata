@@ -68,7 +68,8 @@ struct Transaction {
 HttpResponse ExecuteWrite(duckdb::Connection &con, const HttpRequest &request, const EdmEntity &entity,
                           const std::vector<std::string> &keys, const std::string &base_path) {
 	const bool insert = request.method == "POST";
-	const bool update = request.method == "PATCH";
+	const bool replace = request.method == "PUT";
+	const bool update = request.method == "PATCH" || replace;
 	if (!request.query.empty()) {
 		return Error(400, "query options are not supported on writes");
 	}
@@ -76,7 +77,7 @@ HttpResponse ExecuteWrite(duckdb::Connection &con, const HttpRequest &request, c
 		return Error(400, "conditional writes are not supported");
 	}
 	if ((insert && !keys.empty()) || (!insert && keys.size() != 1)) {
-		return Error(400, "POST requires a collection; PATCH and DELETE require one key");
+		return Error(400, "POST requires a collection; PUT, PATCH and DELETE require one key");
 	}
 	const EdmProperty *key = nullptr;
 	for (auto &p : entity.properties) {
@@ -110,6 +111,7 @@ HttpResponse ExecuteWrite(duckdb::Connection &con, const HttpRequest &request, c
 		}
 		auto root = yyjson_doc_get_root(doc.get());
 		std::set<std::string> seen;
+		std::set<std::string> provided;
 		size_t i, max;
 		yyjson_val *name, *value;
 		yyjson_obj_foreach(root, i, max, name, value) {
@@ -130,8 +132,9 @@ HttpResponse ExecuteWrite(duckdb::Connection &con, const HttpRequest &request, c
 				return Error(400, "unsupported write type: " + field);
 			}
 			if (update && property->is_key) {
-				return Error(400, "PATCH cannot change the key");
+				return Error(400, std::string(replace ? "PUT" : "PATCH") + " cannot change the key");
 			}
+			provided.insert(ToLower(property->name));
 			duckdb::Value parameter;
 			if (yyjson_is_null(value)) {
 				if (!property->nullable || property->is_key) {
@@ -157,7 +160,19 @@ HttpResponse ExecuteWrite(duckdb::Connection &con, const HttpRequest &request, c
 			assignments += QuoteIdentifier(property->name) + "=" + cast;
 			values.push_back(parameter);
 		}
-		if (update && values.empty()) {
+		if (replace) {
+			for (auto &property : entity.properties) {
+				if (property.is_key) {
+					continue;
+				}
+				if (!property.serializable || property.edm_type == EdmType::BINARY) {
+					return Error(400, "PUT does not support write type: " + property.name);
+				}
+				if (!provided.count(ToLower(property.name))) {
+					return Error(400, "PUT requires property: " + property.name);
+				}
+			}
+		} else if (update && values.empty()) {
 			return Error(400, "PATCH requires at least one property");
 		}
 	} else if (!request.body.empty()) {

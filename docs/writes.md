@@ -1,6 +1,6 @@
 # Basic entity writes
 
-The server defaults to read-only. Enable POST, PATCH and DELETE explicitly:
+The server defaults to read-only. Enable POST, PUT, PATCH and DELETE explicitly:
 
 ```sql
 CREATE TABLE customers (id BIGINT PRIMARY KEY, name VARCHAR NOT NULL, active BOOLEAN DEFAULT true);
@@ -9,18 +9,22 @@ CALL odata_serve('http://127.0.0.1:8080', token := 'secret', read_only := false)
 ```
 
 ```bash
-curl -X POST -H 'Authorization: Bearer secret' -H 'Content-Type: application/json' \
+curl -X POST -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
   -d '{"id":1,"name":"Alice"}' 'http://127.0.0.1:8080/odata/customers'
-curl -X PATCH -H 'Authorization: Bearer secret' -H 'Content-Type: application/json' \
+curl -X PATCH -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
   -d '{"name":"Updated"}' 'http://127.0.0.1:8080/odata/customers(1)'
-curl -X DELETE -H 'Authorization: Bearer secret' \
+curl -X PUT -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
+  -d '{"name":"Alice","active":true}' 'http://127.0.0.1:8080/odata/customers(1)'
+curl -X DELETE -H 'Authorization: Bearer <token>' \
   'http://127.0.0.1:8080/odata/customers(1)'
 ```
 
 POST returns 201, the inserted public fields, and a relative `Location` URL.
 Omitted fields use DuckDB defaults. PATCH modifies only supplied fields and
-cannot change the key. PATCH and DELETE return 204 with no body; missing keys
-return 404. The `/entity/key` route is also supported.
+cannot change the key. PUT replaces every public, non-key field and requires
+each of those fields in its JSON object; it cannot change the key. PUT, PATCH
+and DELETE return 204 with no body; missing keys return 404. The `/entity/key`
+route is also supported.
 
 Every write uses a prepared statement with bound values and explicit casts to
 the catalog column types. Strings (including numeric or date strings), numbers,
@@ -43,8 +47,8 @@ Chunked request bodies and duplicate Content-Length headers are rejected.
 The concurrent-query limit includes writes. Existing query-timeout and response
 size settings currently apply to the read path, not write execution/responses.
 
-PUT, `$batch`, ETag/If-Match, conditional writes, compound keys and query options
-on writes are not implemented. If-Match/If-None-Match are rejected rather than
+`$batch`, ETag/If-Match, conditional writes, compound keys and query options on
+writes are not implemented. If-Match/If-None-Match are rejected rather than
 silently ignoring a caller's concurrency condition.
 
 Run `python3 test/http/odata_write_test.py [duckdb-cli] [extension-path]` after

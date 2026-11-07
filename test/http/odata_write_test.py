@@ -92,12 +92,11 @@ def expect(port, method, path, status, **kwargs):
 
 def main():
     with server() as port:
-        for method in ("POST", "PATCH", "DELETE"):
+        for method in ("POST", "PATCH", "PUT", "DELETE"):
             expect(port, method, "/odata/items", 405, data={"name": "blocked"})
     with server(False) as port:
         expect(port, "POST", "/odata/items", 401, data={"name": "blocked"}, token="wrong")
         expect(port, "POST", "/odata/unknown", 404, data={})
-        expect(port, "PUT", "/odata/items(1)", 405, data={})
         expect(port, "POST", "/health", 405, data={})
         expect(port, "POST", "/odata/hidden_key", 400, data={"name": "blocked"})
         expect(port, "POST", "/odata/defaults_only", 201, data={})
@@ -113,6 +112,11 @@ def main():
         expect(port, "PATCH", "/odata/items(1)", 204, data={"name": "changed", "active": False, "amount": None})
         row = json.loads(expect(port, "GET", location, 200)[2])
         assert row["name"] == "changed" and row["active"] is False and row["amount"] is None
+        expect(port, "PUT", "/odata/items(1)", 204, data={"name": "replaced", "active": True, "amount": "99.25"})
+        row = json.loads(expect(port, "GET", location, 200)[2])
+        assert row["name"] == "replaced" and row["active"] is True and row["amount"] == 99.25
+        expect(port, "PUT", "/odata/items(1)", 400, data={"name": "partial", "active": True})
+        expect(port, "PUT", "/odata/items(1)", 400, data={"id": 1, "name": "wrong", "active": True, "amount": 1})
         for payload in ({"secret": "leak"}, {"unknown": 1}, {"name": None}, {"amount": {}}, {"amount": "bad"}):
             expect(port, "PATCH", "/odata/items(1)", 400, data=payload)
         expect(port, "PATCH", "/odata/items(1)", 400, data={"id": 9})
@@ -120,7 +124,7 @@ def main():
         expect(port, "PATCH", "/odata/items(1)?$filter=id%20eq%201", 400, data={"name": "wrong"})
         expect(port, "PATCH", "/odata/items(1)", 400, data={"name": "wrong"}, extra_headers={"If-Match": "*"})
         expect(port, "PATCH", "/odata/items(1)", 400, data={"name": "wrong", "amount": "bad"})
-        assert json.loads(expect(port, "GET", location, 200)[2])["name"] == "changed"
+        assert json.loads(expect(port, "GET", location, 200)[2])["name"] == "replaced"
         expect(port, "PATCH", "/odata/items(1)/garbage", 400, data={"name": "wrong"})
         expect(port, "PATCH", "/odata/items", 400, data={"name": "wrong"})
         expect(port, "POST", "/odata/items(1)", 400, data={"name": "wrong"})
