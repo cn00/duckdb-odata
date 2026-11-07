@@ -84,6 +84,14 @@ the image URI only after verifying the pushed manifest type. Use the printed
 `lambda-v0.1.1` image URI when creating the Lambda function; do not use the
 multi-architecture GHCR image or an ECR tag produced with Buildx `--push`.
 
+## CloudWatch logs
+
+The Lambda entrypoint forwards DuckDB CLI stdout and stderr to the function
+stdout with a `[duckdb]` prefix. Lambda captures this stream in the function's
+CloudWatch Logs group alongside Lambda Web Adapter logs. This includes startup
+SQL results and DuckDB errors without exposing the SQL text from
+`ODATA_INIT_SQL`.
+
 ## Data sources and writes
 
 The default database path is `/tmp/odata.duckdb`, which is ephemeral and

@@ -7,6 +7,9 @@ token="${ODATA_TOKEN:-}"
 init_sql="${ODATA_INIT_SQL:-}"
 init_sql_file=/opt/duckdb-odata/init.sql
 temporary_init_sql=
+log_dir=
+log_pipe=
+logger_pid=
 
 case "${port}" in
     ''|*[!0-9]*)
@@ -31,12 +34,37 @@ if [ -n "${init_sql}" ]; then
 fi
 
 escaped_token=$(printf '%s' "${token}" | sed "s/'/''/g")
-trap 'rm -f "${temporary_init_sql}"' EXIT
+log_dir=$(mktemp -d /tmp/odata-duckdb-log.XXXXXX)
+log_pipe=${log_dir}/output
+mkfifo "${log_pipe}"
+
+forward_duckdb_logs() {
+    while IFS= read -r line || [ -n "${line}" ]; do
+        printf '[duckdb] %s\n' "${line}"
+    done < "${log_pipe}"
+}
+
+cleanup() {
+    rm -f "${temporary_init_sql}" "${log_pipe}"
+    rmdir "${log_dir}" 2>/dev/null || true
+    if [ -n "${logger_pid}" ]; then
+        kill "${logger_pid}" >/dev/null 2>&1 || true
+    fi
+}
+
+forward_duckdb_logs &
+logger_pid=$!
+trap cleanup EXIT HUP INT TERM
 
 {
     printf "LOAD '/opt/duckdb-odata/odata.duckdb_extension';\n"
     printf "LOAD httpfs;\n"
     cat "${init_sql_file}"
+    printf "\n.output /dev/null\n"
     printf "CALL odata_serve('http://0.0.0.0:%s', token := '%s');\n" "${port}" "${escaped_token}"
+    printf ".output stdout\n"
     tail -f /dev/null
-} | duckdb -unsigned "${database}"
+} | stdbuf -oL -eL duckdb -unsigned "${database}" > "${log_pipe}" 2>&1
+duckdb_status=$?
+wait "${logger_pid}" || true
+exit "${duckdb_status}"
