@@ -91,6 +91,26 @@ should be treated as a demo or cache. Use `ODATA_INIT_SQL` to provide a
 deployment-specific initialization script. Production read paths should expose
 S3-backed files, a read-only RDS/Aurora catalog, or an EFS-backed DuckDB file.
 
+The Lambda image preinstalls and loads DuckDB `httpfs`. Give the Lambda
+execution role only the required `s3:ListBucket` and `s3:GetObject` permissions,
+then use DuckDB's credential chain rather than embedding AWS keys:
+
+```sql
+CREATE OR REPLACE SECRET lambda_s3 (
+    TYPE s3,
+    PROVIDER credential_chain
+);
+
+CREATE VIEW s3_events AS
+    SELECT * FROM read_parquet('s3://example-bucket/events/*.parquet');
+CALL odata_expose('s3_events');
+CALL odata_entity('s3_events', key := 'event_id');
+```
+
+Store this SQL in the Lambda image or on EFS and set `ODATA_INIT_SQL` to its
+path. For a bucket outside the function's default Region, set DuckDB's
+`s3_region` setting in the initialization SQL.
+
 Keep `odata_serve` read-only for the first Lambda deployment. If writes are
 required, use a database designed for concurrent writes (for example RDS) or
 set Lambda reserved concurrency to one before enabling OData writes. Do not

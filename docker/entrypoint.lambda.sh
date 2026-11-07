@@ -27,6 +27,7 @@ escaped_token=$(printf '%s' "${token}" | sed "s/'/''/g")
 
 {
     printf "LOAD '/opt/duckdb-odata/odata.duckdb_extension';\n"
+    printf "LOAD httpfs;\n"
     if [ -n "${init_sql}" ]; then
         cat "${init_sql}"
     else
