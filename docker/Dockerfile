@@ -2,6 +2,7 @@ ARG BASE_IMAGE=debian:bookworm-slim
 FROM ${BASE_IMAGE}
 
 ARG DUCKDB_VERSION
+ARG ODATA_VERSION
 ARG TARGETARCH
 
 RUN apt-get update \
@@ -21,7 +22,7 @@ RUN case "${TARGETARCH}" in \
 
 RUN duckdb -unsigned -c "INSTALL postgres_scanner; INSTALL ui"
 
-COPY container-assets/odata-v${DUCKDB_VERSION}-linux_${TARGETARCH}.duckdb_extension \
+COPY container-assets/odata-${ODATA_VERSION}-linux_${TARGETARCH}.duckdb_extension \
     /opt/duckdb-odata/odata.duckdb_extension
 COPY docker/entrypoint.sh /usr/local/bin/duckdb-odata
 COPY docker/init.sql /opt/duckdb-odata/init.sql

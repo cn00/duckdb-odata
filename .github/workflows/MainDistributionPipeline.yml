@@ -44,6 +44,8 @@ jobs:
 
       - name: Stage release assets
         shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           cd release-assets
@@ -56,8 +58,6 @@ jobs:
           assets=()
           for directory in "${artifacts[@]}"; do
             artifact="${directory%/}"
-            version="${artifact#odata-}"
-            version="${version%%-extension-*}"
             platform="${artifact#*-extension-}"
             binaries=("$directory"odata.duckdb_extension*)
             if ((${#binaries[@]} != 1)); then
@@ -65,9 +65,10 @@ jobs:
               exit 1
             fi
             suffix="${binaries[0]#"$directory"odata}"
-            asset="odata-${version}-${platform}${suffix}"
+            asset="odata-${RELEASE_TAG}-${platform}${suffix}"
             cp "${binaries[0]}" "$asset"
-            assets+=("$asset")
+            gzip -9 "$asset"
+            assets+=("${asset}.gz")
           done
           sha256sum "${assets[@]}" > sha256sums.txt
 
@@ -125,6 +126,8 @@ jobs:
 
       - name: Stage container extensions
         shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           mkdir container-assets
@@ -136,8 +139,6 @@ jobs:
           fi
           for directory in "${artifacts[@]}"; do
             artifact="${directory%/}"
-            version="${artifact#release-assets/odata-}"
-            version="${version%%-extension-*}"
             platform="${artifact#*-extension-}"
             case "${platform}" in
               linux_amd64|linux_arm64) ;;
@@ -148,7 +149,7 @@ jobs:
               echo "::error::Expected one native extension in ${artifact}"
               exit 1
             fi
-            destination="container-assets/odata-${version}-${platform}.duckdb_extension"
+            destination="container-assets/odata-${RELEASE_TAG}-${platform}.duckdb_extension"
             cp "${binaries[0]}" "${destination}"
             test -f "${destination}"
           done
@@ -169,7 +170,9 @@ jobs:
           file: docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: DUCKDB_VERSION=2.0.0
+          build-args: |
+            DUCKDB_VERSION=2.0.0
+            ODATA_VERSION=${{ github.ref_name }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/duckdb-odata:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/duckdb-odata:latest
