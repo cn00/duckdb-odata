@@ -87,9 +87,19 @@ multi-architecture GHCR image or an ECR tag produced with Buildx `--push`.
 ## Data sources and writes
 
 The default database path is `/tmp/odata.duckdb`, which is ephemeral and
-should be treated as a demo or cache. Use `ODATA_INIT_SQL` to provide a
-deployment-specific initialization script. Production read paths should expose
-S3-backed files, a read-only RDS/Aurora catalog, or an EFS-backed DuckDB file.
+should be treated as a demo or cache. `ODATA_INIT_SQL` overrides the built-in
+demo initialization with Base64-encoded SQL from the Lambda environment:
+
+```bash
+export ODATA_INIT_SQL="$(base64 < init.sql | tr -d '\n')"
+```
+
+Set the resulting value as the Lambda `ODATA_INIT_SQL` environment variable.
+Lambda environment variables have a 4 KB total limit, and Base64 expands the
+SQL size, so use this only for short initialization scripts. Do not put
+credentials in the SQL; use the Lambda execution role and Secrets Manager.
+Production read paths should expose S3-backed files, a read-only RDS/Aurora
+catalog, or an EFS-backed DuckDB file.
 
 The Lambda image preinstalls and loads DuckDB `httpfs`. Give the Lambda
 execution role only the required `s3:ListBucket` and `s3:GetObject` permissions,
@@ -107,9 +117,9 @@ CALL odata_expose('s3_events');
 CALL odata_entity('s3_events', key := 'event_id');
 ```
 
-Store this SQL in the Lambda image or on EFS and set `ODATA_INIT_SQL` to its
-path. For a bucket outside the function's default Region, set DuckDB's
-`s3_region` setting in the initialization SQL.
+Base64-encode this SQL and assign it to `ODATA_INIT_SQL`. For a bucket outside
+the function's default Region, set DuckDB's `s3_region` setting in the
+initialization SQL.
 
 Keep `odata_serve` read-only for the first Lambda deployment. If writes are
 required, use a database designed for concurrent writes (for example RDS) or
