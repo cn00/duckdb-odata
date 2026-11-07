@@ -188,6 +188,29 @@ with bearer authentication, column-level allow-lists, resource caps and
 optional server-driven pagination; basic writes can be enabled explicitly. `$expand`, opaque paging
 tokens and the Quack gateway executor are staged for later versions.
 
+## Container quick start
+
+Release tags publish a multi-architecture image to GitHub Container Registry:
+`ghcr.io/cn00/duckdb-odata:<tag>` (`linux/amd64` and `linux/arm64`). The image
+contains the DuckDB CLI and the matching static OData extension. Start the
+included demo with Docker Compose:
+
+```bash
+export ODATA_TOKEN="$(openssl rand -hex 32)"
+docker compose -f examples/docker-compose.yml up -d
+
+curl -H "Authorization: Bearer $ODATA_TOKEN" \
+  http://localhost:8080/odata/customers
+```
+
+By default, Compose pulls `ghcr.io/cn00/duckdb-odata:latest`, persists its
+DuckDB database in the `odata-data` volume and binds the service only to
+`127.0.0.1`. Set `ODATA_IMAGE=ghcr.io/cn00/duckdb-odata:<tag>` to pin a
+published release. To initialize your own database, mount a SQL file and set
+`ODATA_INIT_SQL` to its path; it must create/expose entities, while the
+container loads the extension and starts the server. Keep GHCR package
+visibility public for anonymous pulls.
+
 ## Building
 
 Initialize the official DuckDB extension-template submodules, then use its

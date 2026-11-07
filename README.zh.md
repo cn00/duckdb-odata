@@ -177,6 +177,26 @@ PATCH 部分更新及 DELETE 删除（204）。默认仍为只读。写操作沿
 [docs/security.md](docs/security.md)。默认只读，支持上文列出的查询选项，
 可显式开启基本写操作；`$expand`、不透明分页 token 与 Quack gateway 执行器仍待实现。
 
+## 容器快速开始
+
+发布 tag 会向 GitHub Container Registry 推送多架构镜像：
+`ghcr.io/cn00/duckdb-odata:<tag>`（`linux/amd64` 与 `linux/arm64`）。镜像内含
+DuckDB CLI 及与之匹配的静态 OData 扩展。使用 Docker Compose 启动内置示例：
+
+```bash
+export ODATA_TOKEN="$(openssl rand -hex 32)"
+docker compose -f examples/docker-compose.yml up -d
+
+curl -H "Authorization: Bearer $ODATA_TOKEN" \
+  http://localhost:8080/odata/customers
+```
+
+Compose 默认拉取 `ghcr.io/cn00/duckdb-odata:latest`，将 DuckDB 数据库持久化到
+`odata-data` volume，并且仅绑定到 `127.0.0.1`。设置
+`ODATA_IMAGE=ghcr.io/cn00/duckdb-odata:<tag>` 可固定已发布版本。需要初始化自有数据库时，
+请挂载 SQL 文件并将 `ODATA_INIT_SQL` 指向该文件；该文件需要建表并调用暴露 API，
+容器负责加载扩展和启动服务。请将 GHCR package 设为公开，才能支持匿名拉取。
+
 ## 构建
 
 先初始化官方 DuckDB 扩展模板所需的 submodule，再使用标准 Makefile：

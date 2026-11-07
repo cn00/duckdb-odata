@@ -1,0 +1,14 @@
+services:
+  odata:
+    image: ${ODATA_IMAGE:-ghcr.io/cn00/duckdb-odata:latest}
+    environment:
+      ODATA_TOKEN: ${ODATA_TOKEN:?Set ODATA_TOKEN before starting the service}
+      ODATA_DATABASE: /data/odata.duckdb
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - odata-data:/data
+    restart: unless-stopped
+
+volumes:
+  odata-data:

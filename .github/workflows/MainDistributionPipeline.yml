@@ -106,3 +106,70 @@ jobs:
 
       - name: Show release assets
         run: ls -la release-assets/odata-*.duckdb_extension* release-assets/sha256sums.txt
+
+  container:
+    name: Publish GHCR image (${{ github.ref_name }})
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: release-assets
+          pattern: odata-*-extension-*
+
+      - name: Stage container extensions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir container-assets
+          shopt -s nullglob
+          artifacts=(release-assets/odata-*-extension-*/)
+          if ((${#artifacts[@]} == 0)); then
+            echo "::error::No OData distribution artifacts were downloaded"
+            exit 1
+          fi
+          for directory in "${artifacts[@]}"; do
+            artifact="${directory%/}"
+            version="${artifact#release-assets/odata-}"
+            version="${version%%-extension-*}"
+            platform="${artifact#*-extension-}"
+            case "${platform}" in
+              linux_amd64|linux_arm64) ;;
+              *) continue ;;
+            esac
+            binaries=("$directory"odata.duckdb_extension)
+            if ((${#binaries[@]} != 1)); then
+              echo "::error::Expected one native extension in ${artifact}"
+              exit 1
+            fi
+            cp "${binaries[0]}" "container-assets/odata-${version}-${platform}.duckdb_extension"
+          done
+          test -f "container-assets/odata-v2.0.0-linux_amd64.duckdb_extension"
+          test -f "container-assets/odata-v2.0.0-linux_arm64.duckdb_extension"
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: DUCKDB_VERSION=2.0.0
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/duckdb-odata:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/duckdb-odata:latest

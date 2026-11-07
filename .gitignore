@@ -16,3 +16,4 @@ test/http/.tmp/
 .sf/
 tmp-*.json
 *.json.tmp
+container-assets/
