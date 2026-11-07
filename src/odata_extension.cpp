@@ -31,7 +31,7 @@ using duckdb_odata::ODataServerState;
 
 namespace {
 
-#if __has_include("duckdb/common/identifier.hpp")
+#if __has_include("duckdb/common/typed_index.hpp")
 using ODataColumnName = Identifier;
 #else
 using ODataColumnName = string;
@@ -39,7 +39,7 @@ using ODataColumnName = string;
 
 void AddNamedParameters(TableFunction &function,
                         std::initializer_list<std::pair<const char *, LogicalType>> parameters) {
-#if __has_include("duckdb/common/identifier.hpp")
+#if __has_include("duckdb/common/typed_index.hpp")
 	function.GetSignature().WithTypedKwargs("options", [&](TypedKwargs &options) {
 		for (auto &parameter : parameters) {
 			options.Add(parameter.first, parameter.second);
@@ -53,7 +53,7 @@ void AddNamedParameters(TableFunction &function,
 }
 
 void SetOutputCardinality(DataChunk &output, idx_t count) {
-#if __has_include("duckdb/common/identifier.hpp")
+#if __has_include("duckdb/common/typed_index.hpp")
 	output.SetChildCardinality(count);
 #else
 	output.SetCardinality(count);
@@ -67,12 +67,27 @@ duckdb_odata::EdmEntity ParserCompilerTestEntity() {
 	entity.schema = "main";
 	entity.table = "items";
 	entity.has_key = true;
-	entity.properties = {
-	    {"id", duckdb_odata::EdmType::INT64, false, true, "BIGINT", true},
-	    {"name", duckdb_odata::EdmType::STRING, false, false, "VARCHAR", true},
-	    {"active", duckdb_odata::EdmType::BOOLEAN, false, false, "BOOLEAN", true},
-	    {"amount", duckdb_odata::EdmType::DECIMAL, true, false, "DECIMAL(18,2)", true},
-	};
+	duckdb_odata::EdmProperty id;
+	id.name = "id";
+	id.edm_type = duckdb_odata::EdmType::INT64;
+	id.nullable = false;
+	id.is_key = true;
+	id.duckdb_type = "BIGINT";
+	entity.properties.push_back(id);
+	duckdb_odata::EdmProperty name;
+	name.name = "name";
+	name.duckdb_type = "VARCHAR";
+	entity.properties.push_back(name);
+	duckdb_odata::EdmProperty active;
+	active.name = "active";
+	active.edm_type = duckdb_odata::EdmType::BOOLEAN;
+	active.duckdb_type = "BOOLEAN";
+	entity.properties.push_back(active);
+	duckdb_odata::EdmProperty amount;
+	amount.name = "amount";
+	amount.edm_type = duckdb_odata::EdmType::DECIMAL;
+	amount.duckdb_type = "DECIMAL(18,2)";
+	entity.properties.push_back(amount);
 	return entity;
 }
 
@@ -80,7 +95,11 @@ duckdb_odata::EdmEntity ParserCompilerTestEntity() {
 // starting an HTTP server or querying a catalog.
 void InternalCompileFilter(DataChunk &args, ExpressionState &, Vector &result) {
 	auto entity = ParserCompilerTestEntity();
+#if __has_include("duckdb/common/typed_index.hpp")
 	UnaryExecutor::Execute<string_t, string_t>(args.data[0], result, [&](string_t filter) {
+#else
+	UnaryExecutor::Execute<string_t, string_t>(args.data[0], result, args.size(), [&](string_t filter) {
+#endif
 		duckdb_odata::ODataQuery query;
 		auto text = std::string(filter.GetData(), filter.GetSize());
 		if (!text.empty()) {
