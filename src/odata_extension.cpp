@@ -381,9 +381,9 @@ void ExposeSchemaExecute(ClientContext &context, TableFunctionInput &data_p, Dat
 	    catalog_arg.empty() ? "current_catalog()" : duckdb_odata::QuoteStringLiteral(catalog_arg);
 	auto object_filter = " WHERE schema_name = " + duckdb_odata::QuoteStringLiteral(schema) +
 	                     " AND NOT internal AND NOT temporary AND database_name = " + catalog_scope;
-	auto res = con.Query("SELECT table_name AS object_name, database_name FROM duckdb_tables()" + object_filter +
-	                     " UNION ALL SELECT view_name AS object_name, database_name FROM duckdb_views()" +
-	                     object_filter);
+	auto res =
+	    con.Query("SELECT table_name AS object_name, database_name FROM duckdb_tables()" + object_filter +
+	              " UNION ALL SELECT view_name AS object_name, database_name FROM duckdb_views()" + object_filter);
 	if (res->HasError()) {
 		throw InvalidInputException("odata_expose_schema failed: %s", res->GetError());
 	}
