@@ -148,10 +148,10 @@ jobs:
               echo "::error::Expected one native extension in ${artifact}"
               exit 1
             fi
-            cp "${binaries[0]}" "container-assets/odata-${version}-${platform}.duckdb_extension"
+            destination="container-assets/odata-${version}-${platform}.duckdb_extension"
+            cp "${binaries[0]}" "${destination}"
+            test -f "${destination}"
           done
-          test -f "container-assets/odata-v2.0.0-linux_amd64.duckdb_extension"
-          test -f "container-assets/odata-v2.0.0-linux_arm64.duckdb_extension"
 
       - uses: docker/setup-qemu-action@v3
 
