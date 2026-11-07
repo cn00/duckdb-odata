@@ -14,7 +14,7 @@ RUN case "${TARGETARCH}" in \
         *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
     && curl --fail --location --silent --show-error \
-        "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/duckdb-cli-linux-${cli_arch}.tar.gz" \
+        "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/duckdb-cli-linux-${cli_arch}.tar.gz" \
         --output /tmp/duckdb.tar.gz \
     && tar -xzf /tmp/duckdb.tar.gz -C /usr/local/bin duckdb \
     && rm /tmp/duckdb.tar.gz \
