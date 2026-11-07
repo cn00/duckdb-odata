@@ -208,10 +208,11 @@ By default, Compose pulls `ghcr.io/cn00/duckdb-odata:latest`, starts a
 `pg_public_products`. It persists both databases in named volumes and binds
 services only to `127.0.0.1`.
 
-The official DuckDB UI is available at <http://localhost:4213>; it can inspect
-the OData DuckDB database and query the attached PostgreSQL demo. The UI can
-execute arbitrary SQL, so it intentionally has no public port binding and
-should be used only for local development. Set
+The official DuckDB UI is available at <http://localhost:4213>; use this exact
+`localhost` URL, not `127.0.0.1`, because the official UI validates its local
+browser origin. It can inspect the OData DuckDB database and query the attached
+PostgreSQL demo. The UI can execute arbitrary SQL, so it intentionally has no
+public port binding and should be used only for local development. Set
 `ODATA_IMAGE=ghcr.io/cn00/duckdb-odata:<tag>` to pin a published release. To
 initialize your own database, mount a SQL file and set `ODATA_INIT_SQL` to its
 path; it must create/expose entities, while the container loads the extension
